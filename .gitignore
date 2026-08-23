@@ -1,0 +1,28 @@
+# --- Raw / large external datasets (NEVER commit) ---
+*.h5ad
+*.h5
+*.tar
+*.RSEM*
+*.gz
+*.zip
+*.part
+*.exe
+*.bak*
+*.tar.gz
+
+# --- Project-specific raw data directories (defense in depth) ---
+article*/data/
+article3/data/
+external_reanalysis/
+
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.ipynb_checkpoints/
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+*.swp

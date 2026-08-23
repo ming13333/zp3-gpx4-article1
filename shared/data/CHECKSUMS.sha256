@@ -1,0 +1,17 @@
+# sha256  <relative-path-from-output/>
+# 生成环境: 3.13.14
+a8c36cb16ef82eccb0b6e1e62a2af3ab9d54c1f56735bc59dfac4cbbe2391d4d  phase1_knowledge_gap_filling/TcgaTargetGtex_rsem_gene_tpm.gz  # 1323254426 bytes
+06ea2eed26ad6cd66bf8520555cbae71f2b7e2fbfb5c13508da870752dd4b8e6  phase1_knowledge_gap_filling/TcgaTargetGtex_rsem_isoform_tpm.gz  # 4467218883 bytes
+dcfa8391588151c2273e36c3fe16e1103120a8d8202df2c147e9c74884dead0d  phase1_knowledge_gap_filling/GTEX_phenotype.gz  # 82442 bytes
+ba0d8e759e0b9201b5a13cb94c9438a7c135ea018f212faaaaf243823cff9670  cgga_validation/CGGA.mRNAseq_693.RSEM-genes.20200506.txt  # 83545000 bytes
+4237a21fdceefd81a86e36ee62330be01bee1b5129f3ae3d8662bb0df44bf586  cgga_validation/CGGA.mRNAseq_325.RSEM-genes.20200506.txt  # 40034276 bytes
+5c4971d75fd7121be73d6e91b334d5b9dd44f4b8d24b9b0ca80ac92ee623a08d  cgga_validation/CGGA.mRNAseq_693.RSEM-genes.20200506.txt.zip  # 29738046 bytes
+78f1549f5d369f2381fa11501855929d4b5e493a2d129a3c81af2f522afb186b  cgga_validation/CGGA.mRNAseq_325.RSEM-genes.20200506.txt.zip  # 14292049 bytes
+6431e67742c1f380412a29909bd9c9d297ee5a4966f9d43cdcd0ebff2eebc11e  h1_pilot/GSE84465_GBM_All_data.csv.gz  # 20519629 bytes
+9a15f0289a7a3c10518580d336385cd62a85e93a8c43111d9c5f499e1dc40664  h1_pilot/h1_adata.h5ad  # 211756315 bytes
+0e456dc6d5e9f58e1d630697852ec04597fa117f4c2e5f7ed8527a0a3e2fdd10  h1_pilot/h1_adata_subtyped.h5ad  # 211897817 bytes
+987c7637e72ff5ad9c9630b0ee959064713cd8f57348d05003fb85a2f4cc43d5  gse91061_validation/GSE91061_BMS038109Sample.hg19KnownGene.fpkm.csv.gz  # 16354905 bytes
+fc51849b9e923b6a0ac8341c443d83d35d9fb2643d19b15554b3e444f74b5445  immunotherapy_validation/exmat_censored_IMvigor210.csv  # 34121302 bytes
+a5f43bb90b88806380a05227692f079564ce18b76d8c641bfd4c8d11b67244ea  phase1_knowledge_gap_filling/sc_data/rcc_htan.h5ad  # 41183181 bytes
+2b678b98a9339ac0fdad44f55a30074853ac3caea8062d42a9453dd6734c6aee  phase1_knowledge_gap_filling/sc_data/luad_htan.h5ad  # 332890824 bytes
+af45e178d93599564cf3933c5c6353d79b2a292b5e4861859df5d56630123eb6  phase1_knowledge_gap_filling/sc_data/melanoma_myeloid.h5ad  # 2606540453 bytes
