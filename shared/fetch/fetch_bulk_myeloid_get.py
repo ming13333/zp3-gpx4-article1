@@ -13,11 +13,11 @@ ROOT = _project_root()
 import os
 # -*- coding: utf-8 -*-
 """
-检验B: bulk GBM/LGG 中 ZP3↔TREM2 关联是否独立于"总髓系负荷"
-- 用 GET 端点拉泛髓系 marker (CD68,CD14,LYZ,CSF1R,ITGAM) 到 expr
-- 髓系指数 = 可用 marker 的 z-scored mean
-- 粗相关 vs 偏相关(控制髓系指数)
-GET 端点（样本列表用 *_rna_seq_v2_mrna），逐基因。
+Test B: whether ZP3↔TREM2 association in bulk GBM/LGG is independent of "total myeloid burden"
+- Use GET endpoint to pull pan-myeloid markers (CD68,CD14,LYZ,CSF1R,ITGAM) into expr
+- Myeloid index = z-scored mean of available markers
+- Crude correlation vs partial correlation (controlling for myeloid index)
+GET endpoint (sample list uses *_rna_seq_v2_mrna), gene by gene.
 """
 import requests, os, time
 import numpy as np, pandas as pd, scipy.stats as st
@@ -54,7 +54,7 @@ for study,suffix in [("gbm_tcga","gbm"),("lgg_tcga","lgg")]:
                 expr.loc[pid,sym]=float(val); n+=1
         if n>30: got.append(sym)
         time.sleep(0.2)
-    print("=== %s: 拉到的髓系 marker %s ==="%(study,got))
+    print("=== %s: retrieved myeloid markers %s ==="%(study,got))
     if got:
         zs_=(expr[got]-expr[got].mean())/expr[got].std()
         expr["myeloid_idx"]=zs_.mean(axis=1)
@@ -67,10 +67,10 @@ for study,suffix in [("gbm_tcga","gbm"),("lgg_tcga","lgg")]:
         rzp=sub["ZP3"].values-reg(sub["ZP3"].values,sub["myeloid_idx"].values)
         rtr=sub["TREM2"].values-reg(sub["TREM2"].values,sub["myeloid_idx"].values)
         rp,pp=st.pearsonr(rzp,rtr)
-        print("  n=%d | 髓系指数基因: %s"%(len(sub),got))
-        print("  ZP3 vs 髓系指数:      r=%.3f p=%.3g"%(r1,p1))
-        print("  TREM2 vs 髓系指数:    r=%.3f p=%.3g"%(r2,p2))
-        print("  ZP3 vs TREM2 粗相关:  r=%.3f p=%.3g"%(r0,p0))
-        print("  ZP3 vs TREM2 偏相关(控制髓系指数): r_partial=%.3f p=%.3g"%(rp,pp))
-        print("  => 控制髓系负荷后 %s"%(("仍显著: 独立于总髓系量的特异关联" if pp<0.05 else "不显著: 表观相关主要由总髓系负荷驱动(混杂)")))
+        print("  n=%d | myeloid index genes: %s"%(len(sub),got))
+        print("  ZP3 vs myeloid index:      r=%.3f p=%.3g"%(r1,p1))
+        print("  TREM2 vs myeloid index:    r=%.3f p=%.3g"%(r2,p2))
+        print("  ZP3 vs TREM2 crude correlation:  r=%.3f p=%.3g"%(r0,p0))
+        print("  ZP3 vs TREM2 partial correlation (controlling for myeloid index): r_partial=%.3f p=%.3g"%(rp,pp))
+        print("  => after controlling for myeloid burden %s"%(("still significant: specific association independent of total myeloid burden" if pp<0.05 else "not significant: apparent correlation mainly driven by total myeloid burden (confounding)")))
         expr.to_csv(os.path.join(BASE,"expr_%s_b_myeloid.csv"%suffix))

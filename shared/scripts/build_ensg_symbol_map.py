@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-构建 ensg -> symbol 全基因组映射（缓存到本地）
-用于 GSEA 排序列表的基因名转换。
-数据源：Ensembl REST /lookup/id 批量查询（分批）。
-缓存：ensg_symbol_map.json
+Build a genome-wide ensg -> symbol mapping (cached locally)
+Used for gene name conversion of the GSEA ranking list.
+Data source: Ensembl REST /lookup/id batch query (in chunks).
+Cache: ensg_symbol_map.json
 """
 import os
 import json
@@ -36,28 +36,28 @@ def build_map(ensg_list, batch=1000, delay=0.2):
                 ok = True
                 break
             except Exception as e:
-                print(f"  批次 {i//batch} 重试 {attempt+1}: {str(e)[:50]}")
+                print(f"  Batch {i//batch} retry {attempt+1}: {str(e)[:50]}")
                 time.sleep(2)
         if not ok:
-            print(f"  批次 {i//batch} 失败")
-        print(f"  进度: {min(i+batch, len(ensg_list))}/{len(ensg_list)}")
+            print(f"  Batch {i//batch} failed")
+        print(f"  Progress: {min(i+batch, len(ensg_list))}/{len(ensg_list)}")
         time.sleep(delay)
     return out
 
 
 def main():
-    # 从 ranklist 读取 ensg
+    # Read ensg from ranklist
     rnk_path = os.path.join(BASE, "zp3_gsea_results", "fl_vs_ri_ranklist.csv")
     import pandas as pd
     rnk = pd.read_csv(rnk_path)
     ensgs = [g for g in rnk["symbol"] if g.startswith("ENSG")]
-    print(f"需要映射的 ensg 数: {len(ensgs)}")
+    print(f"Number of ensg to map: {len(ensgs)}")
     m = build_map(ensgs)
-    print(f"映射成功: {len(m)}/{len(ensgs)}")
+    print(f"Successfully mapped: {len(m)}/{len(ensgs)}")
     with open(CACHE, "w") as f:
         json.dump(m, f)
-    print(f"缓存已存: {CACHE}")
-    # 抽查
+    print(f"Cache saved: {CACHE}")
+    # Spot check
     for g in ["ENSG00000188372", "ENSG00000141510"]:
         print(f"  {g} -> {m.get(g)}")
 

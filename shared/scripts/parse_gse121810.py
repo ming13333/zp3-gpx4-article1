@@ -12,7 +12,7 @@ def _project_root():
     return _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 ROOT = _project_root()
 """
-解析 GSE121810 胶质瘤免疫治疗数据集
+Parse GSE121810 glioma immunotherapy dataset
 """
 import os
 import gzip
@@ -21,28 +21,28 @@ import pandas as pd
 
 OUT_DIR = os.path.join(ROOT, "output", "h2_bulk")
 
-# 读取表达矩阵
-print('读取表达矩阵...')
+# Read expression matrix
+print('Reading expression matrix...')
 expr_file = os.path.join(OUT_DIR, 'GSE121810_Prins.PD1NeoAdjv.Jul2018.HUGO.PtID.xlsx')
 expr_df = pd.read_excel(expr_file, index_col=0)
-print(f'表达矩阵形状: {expr_df.shape}')
-print(f'基因数: {expr_df.shape[0]}')
-print(f'样本数: {expr_df.shape[1]}')
+print(f'Expression matrix shape: {expr_df.shape}')
+print(f'Number of genes: {expr_df.shape[0]}')
+print(f'Number of samples: {expr_df.shape[1]}')
 
-# 查看样本名
-print('\n样本名列表:')
+# View sample names
+print('\nSample name list:')
 for i, col in enumerate(expr_df.columns):
     print(f'{i+1}: {col}')
 
-# 解析样本信息
-print('\n解析样本信息...')
+# Parse sample information
+print('\nParsing sample information...')
 sample_info = []
 for col in expr_df.columns:
-    # 解析 Pt3_A, Pt12_B 等
+    # Parse Pt3_A, Pt12_B, etc.
     parts = col.split('_')
     if len(parts) >= 2:
         patient_id = parts[0]
-        group = parts[1]  # A 或 B
+        group = parts[1]  # A or B
         sample_info.append({
             'sample_id': col,
             'patient_id': patient_id,
@@ -56,37 +56,37 @@ for col in expr_df.columns:
         })
 
 info_df = pd.DataFrame(sample_info)
-print(f'\n样本信息:')
+print(f'\nSample information:')
 print(info_df.to_string())
 
-# 统计分组
-print('\n分组分布:')
+# Group statistics
+print('\nGroup distribution:')
 print(info_df['group'].value_counts())
 
-# 查看 ZP3 表达
-print('\nZP3 表达分析:')
+# Check ZP3 expression
+print('\nZP3 expression analysis:')
 if 'ZP3' in expr_df.index:
     zp3_expr = expr_df.loc['ZP3']
-    print(f'ZP3 表达值 (前10个样本):')
+    print(f'ZP3 expression values (first 10 samples):')
     for i, (sample, expr) in enumerate(zp3_expr.items()):
         if i < 10:
             print(f'{sample}: {expr:.3f}')
     
-    # 按分组统计
-    print('\n按分组统计:')
+    # Statistics by group
+    print('\nStatistics by group:')
     for group in info_df['group'].unique():
         samples = info_df[info_df['group'] == group]['sample_id'].values
         group_expr = zp3_expr[samples]
-        print(f'组 {group} (n={len(samples)}): mean={group_expr.mean():.3f}, median={group_expr.median():.3f}, std={group_expr.std():.3f}')
+        print(f'Group {group} (n={len(samples)}): mean={group_expr.mean():.3f}, median={group_expr.median():.3f}, std={group_expr.std():.3f}')
 else:
-    print('未找到 ZP3 基因')
-    # 查找可能的 ZP3 相关基因
+    print('ZP3 gene not found')
+    # Search for possible ZP3-related genes
     zp3_candidates = [g for g in expr_df.index if 'ZP3' in str(g).upper()]
     if zp3_candidates:
-        print(f'找到可能的 ZP3 相关基因: {zp3_candidates}')
+        print(f'Found possible ZP3-related genes: {zp3_candidates}')
 
-# 解析 series matrix 获取临床信息
-print('\n解析 series matrix...')
+# Parse series matrix to get clinical information
+print('\nParsing series matrix...')
 series_file = os.path.join(OUT_DIR, 'GSE121810_series_matrix.txt.gz')
 if os.path.exists(series_file):
     lines = []
@@ -97,9 +97,9 @@ if os.path.exists(series_file):
             if line.startswith('!'):
                 lines.append(line.rstrip())
     
-    print(f'读取 {len(lines)} 行元数据')
+    print(f'Read {len(lines)} lines of metadata')
     
-    # 提取字段
+    # Extract fields
     fields = {}
     for line in lines:
         m = re.match(r'!(\w+)\s+(.*)', line, re.S)
@@ -110,47 +110,47 @@ if os.path.exists(series_file):
         cols = [c.strip('"') for c in cols]
         fields[key] = cols
     
-    print(f'提取到 {len(fields)} 个字段')
+    print(f'Extracted {len(fields)} fields')
     
-    # 查看关键字段
+    # Inspect key fields
     key_fields = ['Sample_description', 'Sample_characteristics_ch1', 'Sample_characteristics_ch2']
     for field in key_fields:
         if field in fields:
             values = fields[field]
-            print(f'\n{field} (长度 {len(values)}):')
+            print(f'\n{field} (length {len(values)}):')
             for i, v in enumerate(values[:5]):
                 print(f'  {i}: {v}')
             if len(values) > 5:
-                print(f'  ... (共 {len(values)} 个)')
+                print(f'  ... ({len(values)} total)')
     
-    # 提取治疗组信息
+    # Extract treatment group information
     if 'Sample_characteristics_ch1' in fields:
-        print('\n治疗组信息:')
+        print('\nTreatment group information:')
         for i, v in enumerate(fields['Sample_characteristics_ch1']):
             if i < 5:
                 print(f'  {i}: {v}')
     
-    # 提取生存信息
+    # Extract survival information
     survival_keywords = ['survival', 'os', 'overall', 'time', 'month', 'day', 'year', 'status', 'event', 'alive', 'dead', 'death']
     for key, values in fields.items():
         if any(keyword in key.lower() for keyword in survival_keywords):
             print(f'\n{key}: {values[:5]}...')
 else:
-    print('series matrix 文件不存在')
+    print('series matrix file does not exist')
 
-# 保存样本信息
+# Save sample info
 info_csv = os.path.join(OUT_DIR, 'gse121810_sample_info.csv')
 info_df.to_csv(info_csv, index=False)
-print(f'\n样本信息已保存: {info_csv}')
+print(f'\nSample info saved: {info_csv}')
 
-# 保存 ZP3 表达
+# Save ZP3 expression
 if 'ZP3' in expr_df.index:
     zp3_csv = os.path.join(OUT_DIR, 'gse121810_zp3_expression.csv')
     zp3_df = pd.DataFrame({'sample': zp3_expr.index, 'zp3_expression': zp3_expr.values})
     zp3_df.to_csv(zp3_csv, index=False)
-    print(f'ZP3 表达已保存: {zp3_csv}')
+    print(f'ZP3 expression saved: {zp3_csv}')
 
-# 保存表达矩阵
+# Save expression matrix
 expr_csv = os.path.join(OUT_DIR, 'gse121810_expression.csv')
 expr_df.to_csv(expr_csv)
-print(f'表达矩阵已保存: {expr_csv}')
+print(f'Expression matrix saved: {expr_csv}')

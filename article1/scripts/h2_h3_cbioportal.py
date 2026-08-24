@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-H2 (预后关联) + H3 (免疫抑制 TME 关联) — TCGA GBM / LGG 泛胶质瘤 bulk RNA-seq
-数据来源：cBioPortal REST API v2 (https://www.cbioportal.org/api)
+H2 (prognosis association) + H3 (immunosuppressive TME association) — TCGA GBM / LGG pan-glioma bulk RNA-seq
+Data source: cBioPortal REST API v2 (https://www.cbioportal.org/api)
   - clinical-data (PATIENT): OS_MONTHS / OS_STATUS
   - molecular-data/fetch: RNA-seq V2 RSEM (gbm_tcga_rna_seq_v2_mrna, lgg_tcga_rna_seq_v2_mrna)
-描述级分析，诚实标注：bulk RNA 无法区分 ZP3 经典转录本 vs ZP3-Cancer 替代异构体。
+Descriptive-level analysis, honestly noted: bulk RNA cannot distinguish ZP3 canonical transcript vs ZP3-Cancer alternative isoform.
 """
 import os, time, sys
 import numpy as np
@@ -16,18 +16,18 @@ API = "https://www.cbioportal.org/api"
 BASE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "output", "h2_bulk")
 OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "article1", "results")
 
-# 统一使用经 lifelines/标准实现验证的 log-rank（消除旧版两套不一致手写实现）
+# Uniformly use log-rank validated by lifelines/standard implementation (eliminating the old two inconsistent handwritten implementations)
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "shared", "scripts"))
 from stats_utils import logrank  # noqa: E402
 
-# 免疫抑制相关标志基因（文献常见，作描述性关联）
+# Immunosuppression-related marker genes (common in literature, used for descriptive association)
 IMMUNOSUPP_GENES = ["TGFB1","IL10","FOXP3","CD274","PDCD1","CTLA4","MRC1","CD163",
                     "VSIG4","ARG1","IDO1","VEGFA","CCL2","CXCL12","MSR1","TREM2"]
 M2_GENES    = ["MRC1","CD163","MSR1","ARG1","TGFB1","IL10","VSIG4"]
 TREG_GENES  = ["FOXP3","IL2RA","CTLA4","TIGIT"]
 CHECKPT_GENES = ["CD274","PDCD1","CTLA4","HAVCR2","LAG3"]
 
-SYM2ENT = {}  # 全局：symbol -> entrez
+SYM2ENT = {}  # global: symbol -> entrez
 
 def api_get(path, params=None):
     r = requests.get(API + path, params=params or {}, timeout=60)
@@ -35,7 +35,7 @@ def api_get(path, params=None):
     return r.json()
 
 def api_get_all(path, params=None):
-    """带分页的列表拉取（cBioPortal 通过 nextPageToken 响应头翻页）"""
+    """Paginated list fetch (cBioPortal paginates via nextPageToken response header)"""
     params = dict(params or {})
     out = []
     token = None
@@ -67,14 +67,14 @@ def resolve_entrez(symbols):
             d = api_get(f"/genes/{s}")
             m[s] = d.get("entrezGeneId")
         except Exception as e:
-            print(f"  !! 无法解析 {s}: {e}")
+            print(f"  !! Failed to resolve {s}: {e}")
     return m
 
 def get_sample_ids(study):
     return api_get(f"/sample-lists/{study}_all/sample-ids")
 
 def get_clinical_os(study):
-    """返回 patientId -> (os_time_months, os_event 0/1) 仅含 OS_MONTHS/OS_STATUS"""
+    """Return patientId -> (os_time_months, os_event 0/1), only OS_MONTHS/OS_STATUS"""
     data = api_get_all(f"/studies/{study}/clinical-data",
                        params={"clinicalDataType": "PATIENT", "pageSize": 100000})
     pat = {}
@@ -106,10 +106,10 @@ def get_clinical_os(study):
     return os_time, os_event
 
 def get_expression(study, profile, sample_list_id, entrez_list):
-    """patient 级基因矩阵。优先【批量 POST】/molecular-profiles/{profile}/molecular-data/fetch
-    （I1 修复：单次请求拉取全部 entrez，避免逐基因 GET；实测公共实例要求 profile 在 URL 路径、
-    body 为单对象 {entrezGeneIds, sampleListId}，旧式 /molecular-data/fetch+数组 返回空），
-    失败则回退逐基因。"""
+    """Patient-level gene matrix. Prefer [batch POST] /molecular-profiles/{profile}/molecular-data/fetch
+    (I1 fix: fetch all entrez in a single request, avoid per-gene GET; the tested public instance requires profile in the URL path,
+    body is a single object {entrezGeneIds, sampleListId}; legacy /molecular-data/fetch+array returns empty),
+    If it fails, fall back to per-gene."""
     ent2sym = {v: k for k, v in SYM2ENT.items()}
     body = {
         "sampleListId": sample_list_id,
@@ -128,17 +128,17 @@ def get_expression(study, profile, sample_list_id, entrez_list):
             rows.setdefault(pid, {})[sym] = float(val)
         if rows:
             return pd.DataFrame.from_dict(rows, orient="index")
-        print("    !! 批量返回为空，回退逐基因")
+        print("    !! Batch return empty, falling back to per-gene")
     except Exception as e:
-        print(f"    !! 批量拉取失败，回退逐基因: {e}")
-    # 回退：逐基因 GET
+        print(f"    !! Batch fetch failed, falling back to per-gene: {e}")
+    # Fallback: per-gene GET
     rows = {}
     for ent in entrez_list:
         try:
             data = api_get(f"/molecular-profiles/{profile}/molecular-data",
                            params={"sampleListId": sample_list_id, "entrezGeneId": ent})
         except Exception as e:
-            print(f"    !! 基因 entrez={ent} 拉取失败: {e}")
+            print(f"    !! Gene entrez={ent} fetch failed: {e}")
             continue
         for rec in data:
             pid = rec.get("patientId"); val = rec.get("value")
@@ -153,34 +153,34 @@ def get_expression(study, profile, sample_list_id, entrez_list):
 
 def analyze(study, profile, genes_syms):
     print("\n" + "=" * 72)
-    print(f"队列: {study} (profile={profile})")
+    print(f"Cohort: {study} (profile={profile})")
     sample_list_id = f"{study}_rna_seq_v2_mrna"
     os_time, os_event = get_clinical_os(study)
-    print(f"  有 OS 的 patient 数: {len(os_time)}")
+    print(f"  Number of patients with OS: {len(os_time)}")
     entrez = [SYM2ENT[s] for s in genes_syms if SYM2ENT.get(s)]
     expr = get_expression(study, profile, sample_list_id, entrez)
-    print(f"  表达矩阵: {expr.shape[0]} patient × {expr.shape[1]} gene")
+    print(f"  Expression matrix: {expr.shape[0]} patient × {expr.shape[1]} gene")
     if "ZP3" not in expr.columns:
-        print("  !! 无 ZP3, 跳过"); return None
+        print("  !! No ZP3, skipping"); return None
     zp3 = expr["ZP3"]
     time_s = pd.Series(os_time); event_s = pd.Series(os_event)
     merged = pd.DataFrame({"ZP3": zp3, "time": time_s, "event": event_s}).dropna()
     merged = merged[merged["time"] > 0]
-    print(f"  H2 可用样本(表达+OS): {len(merged)}")
+    print(f"  H2 available samples (expression+OS): {len(merged)}")
     if len(merged) < 30:
-        print("  !! 样本不足"); return None
+        print("  !! Insufficient samples"); return None
     med = merged["ZP3"].median()
     merged["group"] = (merged["ZP3"] > med).astype(int)
     hi = merged[merged.group == 1]; lo = merged[merged.group == 0]
     chi2, p = logrank(merged["time"].values, merged["event"].values, merged["group"].values)
     rate_hi = hi["event"].mean(); rate_lo = lo["event"].mean()
-    direction = "High ZP3 预后更差" if rate_hi > rate_lo else "High ZP3 预后更好"
-    print(f"  ZP3 中位={med:.3f} | High n={len(hi)} vs Low n={len(lo)}")
+    direction = "High ZP3 worse prognosis" if rate_hi > rate_lo else "High ZP3 better prognosis"
+    print(f"  ZP3 median={med:.3f} | High n={len(hi)} vs Low n={len(lo)}")
     print(f"  H2 logrank: chi2={chi2:.3f}, p={p:.4g}")
-    print(f"  事件率 High={rate_hi:.3f} Low={rate_lo:.3f} -> {direction}")
-    # H3: ZP3 vs 免疫抑制标志
-    # 注：表达量为右侧偏态、非正态，改用 Spearman 秩相关（原为 Pearson，已修正）
-    print("  --- H3: ZP3 vs 免疫抑制标志 (Spearman rho) ---")
+    print(f"  Event rate High={rate_hi:.3f} Low={rate_lo:.3f} -> {direction}")
+    # H3: ZP3 vs immunosuppressive markers
+    # Note: expression is right-skewed and non-normal, so Spearman rank correlation was used instead (originally Pearson, now corrected)
+    print("  --- H3: ZP3 vs immunosuppressive markers (Spearman rho) ---")
     rows = []
     h3_genes = list(dict.fromkeys(IMMUNOSUPP_GENES + M2_GENES + TREG_GENES + CHECKPT_GENES))
     for gene in h3_genes:
@@ -191,7 +191,7 @@ def analyze(study, profile, genes_syms):
                 rows.append((gene, round(float(r), 3), round(float(pp), 4), len(sub)))
     h3 = pd.DataFrame(rows, columns=["gene", "spearman_rho", "p", "n"]).sort_values("spearman_rho", ascending=False)
     print(h3.to_string(index=False))
-    # 复合免疫抑制评分（M2+TREG+CHECKPT 可用基因 z-mean）
+    # Composite immunosuppression score (z-mean of available M2+TREG+CHECKPT genes)
     sig = [g for g in M2_GENES + TREG_GENES + CHECKPT_GENES if g in expr.columns]
     immuno_r = np.nan; immuno_p = np.nan; immuno_n = 0
     if sig:
@@ -201,8 +201,8 @@ def analyze(study, profile, genes_syms):
         gg = pd.concat([merged["ZP3"], immuno.rename("immuno_score")], axis=1).dropna()
         immuno_r, immuno_p = stats.spearmanr(gg["ZP3"], gg["immuno_score"])
         immuno_n = len(gg)
-        print(f"  复合免疫抑制评分 vs ZP3: rho={immuno_r:.3f}, p={immuno_p:.4g}, n={immuno_n}")
-    # 保存
+        print(f"  Composite immunosuppression score vs ZP3: rho={immuno_r:.3f}, p={immuno_p:.4g}, n={immuno_n}")
+    # Save
     merged.to_csv(os.path.join(OUT, f"h2_{study}_zp3_os.csv"))
     h3.to_csv(os.path.join(OUT, f"h3_{study}_zp3_immuno.csv"), index=False)
     expr.to_csv(os.path.join(OUT, f"expr_{study}_patient.csv"))
@@ -212,10 +212,10 @@ def analyze(study, profile, genes_syms):
 
 if __name__ == "__main__":
     all_syms = list(dict.fromkeys(["ZP3"] + IMMUNOSUPP_GENES + M2_GENES + TREG_GENES + CHECKPT_GENES))
-    print("解析基因 Entrez ID ...")
+    print("Resolving gene Entrez IDs ...")
     SYM2ENT = resolve_entrez(all_syms)
     print("  ", {k: v for k, v in SYM2ENT.items()})
     results = {}
     results["gbm"] = analyze("gbm_tcga", "gbm_tcga_rna_seq_v2_mrna", all_syms)
     results["lgg"] = analyze("lgg_tcga", "lgg_tcga_rna_seq_v2_mrna", all_syms)
-    print("\n=== H2/H3 分析完成（描述级，需外部验证；ZP3 异构体未区分）===")
+    print("\n=== H2/H3 analysis complete (descriptive level, requires external validation; ZP3 isoforms not distinguished) ===")

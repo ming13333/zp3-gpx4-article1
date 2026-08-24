@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-CGGA-325 胶质瘤独立验证集 ZP3 分析
-与CGGA-693使用完全一致的分析逻辑和免疫基因集，
-用于验证CGGA-693的发现是否可重复。
-同时输出两队列的对比结果。
+CGGA-325 glioma independent validation cohort ZP3 analysis
+Uses exactly the same analysis logic and immune gene sets as CGGA-693,
+to validate whether the findings from CGGA-693 are reproducible.
+Also outputs the comparative results of the two cohorts.
 """
 
 import pandas as pd
@@ -24,7 +24,7 @@ base_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.
 output_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'article1', 'results')
 os.makedirs(output_dir, exist_ok=True)
 
-# ========== 免疫基因集（与CGGA-693完全一致） ==========
+# ========== Immune gene sets (exactly the same as CGGA-693) ==========
 immune_gene_sets = {
     'M2_Macrophage': ['CD163', 'MSR1', 'MRC1', 'CD206', 'TGFB1', 'IL10', 'ARG1', 'IDO1', 'CCL2', 'CCL5'],
     'T_cell_exhaustion': ['PDCD1', 'CTLA4', 'LAG3', 'HAVCR2', 'TIGIT', 'BTLA', 'VSIR', 'IDO1', 'ENTPD1'],
@@ -36,28 +36,28 @@ immune_gene_sets = {
 }
 
 def load_and_analyze(clinical_path, expr_path, cohort_name):
-    """加载并分析单个CGGA队列"""
+    """Load and analyze a single CGGA cohort"""
     print(f"\n{'='*60}")
-    print(f"  {cohort_name} 队列分析")
+    print(f"  {cohort_name} cohort analysis")
     print(f"{'='*60}")
     
     clinical = pd.read_csv(clinical_path, sep='\t')
     expr = pd.read_csv(expr_path, sep='\t', index_col=0)
     
-    print(f"临床样本数: {clinical.shape[0]}")
-    print(f"基因数: {expr.shape[0]}")
+    print(f"Clinical samples: {clinical.shape[0]}")
+    print(f"Genes: {expr.shape[0]}")
     
     zp3_expr = expr.loc['ZP3']
     common = sorted(set(clinical['CGGA_ID']) & set(zp3_expr.index))
     clinical_aligned = clinical[clinical['CGGA_ID'].isin(common)].set_index('CGGA_ID').loc[common]
     zp3_aligned = zp3_expr[common]
     
-    print(f"有效样本数: {len(common)}")
-    print(f"ZP3检出率: {(zp3_aligned>0).sum()}/{len(zp3_aligned)}")
+    print(f"Valid samples: {len(common)}")
+    print(f"ZP3 detection rate: {(zp3_aligned>0).sum()}/{len(zp3_aligned)}")
     
     results = {'cohort': cohort_name, 'n': len(common), 'zp3': zp3_aligned, 'clinical': clinical_aligned}
     
-    # ---- 免疫特征评分 ----
+    # ---- Immune signature scoring ----
     immune_scores = {}
     for set_name, genes in immune_gene_sets.items():
         avail = [g for g in genes if g in expr.index]
@@ -69,9 +69,9 @@ def load_and_analyze(clinical_path, expr_path, cohort_name):
     return results
 
 def compare_queue(r1, r2):
-    """对比两个队列的ZP3-免疫特征相关性"""
+    """Compare ZP3-immune feature correlations between two cohorts"""
     print(f"\n{'='*60}")
-    print("  CGGA-693 vs CGGA-325 免疫特征相关性对比")
+    print("  CGGA-693 vs CGGA-325 Immune Feature Correlation Comparison")
     print(f"{'='*60}")
     
     rows = []
@@ -88,8 +88,8 @@ def compare_queue(r1, r2):
     df = pd.DataFrame(rows)
     df.to_csv(os.path.join(output_dir, 'cgga_693_vs_325_immune.csv'), index=False)
     
-    # 打印表格
-    print(f"\n{'特征':<18}{'693_rho':>8}{'693_p':>12}{'325_rho':>8}{'325_p':>12}")
+    # Print table
+    print(f"\n{'Feature':<18}{'693_rho':>8}{'693_p':>12}{'325_rho':>8}{'325_p':>12}")
     print('-'*60)
     for _, row in df.iterrows():
         sig1 = '*' if row['CGGA693_p'] < 0.05 else ' '
@@ -98,9 +98,9 @@ def compare_queue(r1, r2):
     return df
 
 def main():
-    print("进行 CGGA-325 独立验证...")
+    print("Performing CGGA-325 independent validation...")
     
-    # 分析两个队列
+    # Analyze both cohorts
     r693 = load_and_analyze(
         os.path.join(base_dir, 'CGGA.mRNAseq_693_clinical.20200506.txt'),
         os.path.join(base_dir, 'CGGA.mRNAseq_693.RSEM-genes.20200506.txt'),
@@ -112,12 +112,12 @@ def main():
         'CGGA-325'
     )
     
-    # 对比免疫特征
+    # Compare immune features
     comp = compare_queue(r693, r325)
     
-    # CGGA-325 临床关联检验
+    # CGGA-325 clinical association tests
     print(f"\n{'='*60}")
-    print("  CGGA-325 临床特征关联")
+    print("  CGGA-325 Clinical Feature Associations")
     print(f"{'='*60}")
     
     clin = r325['clinical']
@@ -128,8 +128,8 @@ def main():
     idh_mut = clin[clin['IDH_mutation_status']=='Mutant'].index
     if len(idh_wt)>=5 and len(idh_mut)>=5:
         u, p_idh = stats.mannwhitneyu(zp3[idh_wt], zp3[idh_mut])
-        print(f"IDH 野生型 vs 突变型: p={p_idh:.4f}")
-        print(f"  IDH-WT 中位: {zp3[idh_wt].median():.3f}, IDH-Mut 中位: {zp3[idh_mut].median():.3f}")
+        print(f"IDH Wildtype vs Mutant: p={p_idh:.4f}")
+        print(f"  IDH-WT median: {zp3[idh_wt].median():.3f}, IDH-Mut median: {zp3[idh_mut].median():.3f}")
     
     # Grade
     grade_grp = []
@@ -141,35 +141,35 @@ def main():
             grade_lab.append(g)
     if len(grade_grp)>=2:
         h, p_grade = stats.kruskal(*grade_grp)
-        print(f"WHO分级: Kruskal-Wallis p={p_grade:.4f}")
+        print(f"WHO Grade: Kruskal-Wallis p={p_grade:.4f}")
     
     # 1p19q
     codel = clin[clin['1p19q_codeletion_status']=='Codel'].index
     non_codel = clin[clin['1p19q_codeletion_status']=='Non-codel'].index
     if len(codel)>=5 and len(non_codel)>=5:
         u, p_codel = stats.mannwhitneyu(zp3[codel], zp3[non_codel])
-        print(f"1p/19q 共缺失 vs 非共缺失: p={p_codel:.4f}")
+        print(f"1p/19q co-deletion vs non-co-deletion: p={p_codel:.4f}")
     
-    # 生存分析
-    print(f"\n  CGGA-325 生存分析:")
+    # Survival analysis
+    print(f"\n  CGGA-325 survival analysis:")
     surv = pd.DataFrame({'time': clin['OS'].values, 'event': clin['Censor (alive=0; dead=1)'].values, 'zp3': zp3.values}).dropna()
     median = surv['zp3'].median()
     high = surv[surv['zp3']>=median]
     low = surv[surv['zp3']<median]
     lr = logrank_test(high['time'], low['time'], event_observed_A=high['event'], event_observed_B=low['event'])
-    print(f"  Log-rank(ZP3高/低): p={lr.p_value:.4f}")
+    print(f"  Log-rank (ZP3 high/low): p={lr.p_value:.4f}")
     
     # Cox
     try:
         cph = CoxPHFitter()
         cph.fit(surv[['time','event','zp3']], duration_col='time', event_col='event')
-        print(f"  Cox(连续): HR={cph.hazard_ratios_['zp3']:.3f}, p={cph.summary['p']['zp3']:.4f}")
+        print(f"  Cox (continuous): HR={cph.hazard_ratios_['zp3']:.3f}, p={cph.summary['p']['zp3']:.4f}")
     except Exception as e:
-        print(f"  Cox失败: {e}")
+        print(f"  Cox failed: {e}")
     
-    # 绘制对比图
+    # Plot comparison figure
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-    fig.suptitle('CGGA-693 vs CGGA-325: ZP3-免疫特征相关性对比', fontsize=14, fontweight='bold')
+    fig.suptitle('CGGA-693 vs CGGA-325: ZP3-immune signature correlation comparison', fontsize=14, fontweight='bold')
     
     for ax, r, title in [(axes[0], r693, 'CGGA-693 (n=693)'), (axes[1], r325, 'CGGA-325 (n=325)')]:
         names = list(r['immune_scores'].keys())
@@ -188,7 +188,7 @@ def main():
     
     plt.tight_layout()
     plt.savefig(os.path.join(output_dir, 'fig_cgga693_vs_325_immune.png'), dpi=300, bbox_inches='tight')
-    print(f"\n对比图保存: {os.path.join(output_dir, 'fig_cgga693_vs_325_immune.png')}")
+    print(f"\nComparison figure saved: {os.path.join(output_dir, 'fig_cgga693_vs_325_immune.png')}")
 
 if __name__ == '__main__':
     main()

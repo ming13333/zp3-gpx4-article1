@@ -1,56 +1,56 @@
 # -*- coding: utf-8 -*-
 """
-H2 (预后关联) + H3 (免疫抑制 TME 关联) — TCGA GBM/LGG bulk RNA-seq
-数据：UCSC Xena 下载的 HiSeq_TCGA_gene.xena.gz (表达, 行=基因, 列=样本)
-      GBM/LGG_clinicalMatrix.gz (临床, 含 OS_MONTHS / OS_STATUS)
-描述级分析，诚实标注。
+H2 (prognostic association) + H3 (immunosuppressive TME association) — TCGA GBM/LGG bulk RNA-seq
+Data: HiSeq_TCGA_gene.xena.gz downloaded from UCSC Xena (expression, rows=genes, columns=samples)
+      GBM/LGG_clinicalMatrix.gz (clinical, containing OS_MONTHS / OS_STATUS)
+Descriptive-level analysis, honestly labeled.
 """
 import os, gzip, sys, numpy as np, pandas as pd
 from scipy import stats
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 
-# 统一使用经 lifelines/标准实现验证的 log-rank（消除旧版两套不一致手写实现）
+# Use the log-rank validated against lifelines/standard implementations (eliminates two inconsistent legacy hand-written implementations)
 sys.path.insert(0, os.path.join(BASE, "..", "common"))
 from stats_utils import logrank  # noqa: E402
 
-# ---- 免疫抑制相关标志基因（文献常见，作描述性关联）----
+# ---- Immunosuppression-related marker genes (common in literature, for descriptive association) ----
 IMMUNOSUPP_GENES = ["TGFB1", "IL10", "FOXP3", "CD274", "PDCD1", "CTLA4",
                     "MRC1", "CD163", "VSIG4", "ARG1", "IDO1", "VEGFA",
                     "CCL2", "CXCL12", "MSR1", "TREM2"]
-# M2 / TAM 偏向
+# M2 / TAM biased
 M2_GENES = ["MRC1", "CD163", "MSR1", "ARG1", "TGFB1", "IL10", "VSIG4"]
 # Treg
 TREG_GENES = ["FOXP3", "IL2RA", "CTLA4", "TIGIT"]
-# 检查点
+# Checkpoints
 CHECKPT_GENES = ["CD274", "PDCD1", "CTLA4", "HAVCR2", "LAG3"]
 
 def load_expr(path):
-    """Xena 表达矩阵：行=基因符号, 列=样本。返回 DataFrame。"""
+    """Xena expression matrix: rows=gene symbols, columns=samples. Returns DataFrame."""
     df = pd.read_csv(path, sep="\t", index_col=0, compression="gzip")
     return df
 
 def load_clin(path):
-    """Xena 临床矩阵：尝试解析为 属性×样本 或 样本×属性。"""
+    """Xena clinical matrix: try parsing as attributes x samples or samples x attributes."""
     df = pd.read_csv(path, sep="\t", index_col=0, compression="gzip")
-    # 若 OS_MONTHS 在 index -> 属性×样本
+    # If OS_MONTHS is in index -> attributes x samples
     if "OS_MONTHS" in df.index or "OS_MONTHS" in df.columns:
         if "OS_MONTHS" in df.index:
-            return df.T  # -> 样本×属性
+            return df.T  # -> samples x attributes
         return df
     return df
 
 def extract_os(clin, sample_ids):
-    """从临床表提取 OS_MONTHS / OS_STATUS，匹配表达样本。"""
-    # clin: 样本×属性
+    """Extract OS_MONTHS / OS_STATUS from the clinical table, matching expression samples."""
+    # clin: samples x attributes
     common = [s for s in sample_ids if s in clin.index]
     sub = clin.loc[common]
-    # 找 OS 列（灵活匹配）
+    # Find OS columns (flexible matching)
     os_time_col = next((c for c in sub.columns if c.upper() in ("OS_MONTHS", "_OS_MONTHS", "OS_MONTHS")), None)
     os_stat_col = next((c for c in sub.columns if "OS_STATUS" in c.upper() or c.upper() in ("_OS_STATUS",)), None)
     if os_time_col is None or os_stat_col is None:
-        # 打印可用列帮助调试
-        print("  临床可用列(前30):", list(sub.columns[:30]))
+        # Print available columns to help debugging
+        print("  Available clinical columns (first 30):", list(sub.columns[:30]))
         return None
     t = pd.to_numeric(sub[os_time_col], errors="coerce")
     # OS_STATUS: 'DECEASED'/'1' = event=1; 'LIVING'/'0' = 0
@@ -62,40 +62,40 @@ def extract_os(clin, sample_ids):
 
 def analyze_cohort(name, expr_path, clin_path):
     print("\n" + "=" * 72)
-    print(f"队列: {name}")
+    print(f"Cohort: {name}")
     expr = load_expr(expr_path)
     clin = load_clin(clin_path)
-    print(f"  表达矩阵: {expr.shape[0]} 基因 × {expr.shape[1]} 样本")
+    print(f"  Expression matrix: {expr.shape[0]} genes x {expr.shape[1]} samples")
     if "ZP3" not in expr.index:
-        print("  !! 表达矩阵无 ZP3 行，跳过")
+        print("  !! No ZP3 row in expression matrix, skipping")
         return
     zp3 = expr.loc["ZP3"]
-    # 只保留数值样本
+    # Keep only numeric samples
     zp3 = pd.to_numeric(zp3, errors="coerce").dropna()
     osd = extract_os(clin, zp3.index.tolist())
     if osd is None or len(osd) < 20:
-        print("  !! OS 数据不足，跳过 survival")
+        print("  !! Insufficient OS data, skipping survival")
         return
-    # 合并
+    # Merge
     merged = pd.concat([zp3.rename("ZP3"), osd], axis=1).dropna()
     merged = merged[merged["time"] > 0]
-    print(f"  survival 可用样本: {len(merged)}")
-    # 中位二分
+    print(f"  Samples available for survival: {len(merged)}")
+    # Median dichotomization
     med = merged["ZP3"].median()
     merged["group"] = (merged["ZP3"] > med).astype(int)
     hi = merged[merged.group == 1]; lo = merged[merged.group == 0]
     chi2, p = logrank(merged["time"].values, merged["event"].values, merged["group"].values)
-    print(f"  ZP3 中位={med:.3f} | High n={len(hi)} vs Low n={len(lo)}")
+    print(f"  ZP3 median={med:.3f} | High n={len(hi)} vs Low n={len(lo)}")
     print(f"  H2 logrank: chi2={chi2:.3f}, p={p:.4g}")
-    # 方向：High 组事件率
+    # Direction: event rate in High group
     rate_hi = hi["event"].mean(); rate_lo = lo["event"].mean()
-    print(f"  事件率 High={rate_hi:.2f} Low={rate_lo:.2f} -> {'High ZP3 预后更差' if rate_hi>rate_lo else 'High ZP3 预后更好'}")
+    print(f"  Event rate High={rate_hi:.2f} Low={rate_lo:.2f} -> {'High ZP3 worse prognosis' if rate_hi>rate_lo else 'High ZP3 better prognosis'}")
 
-    # H3: ZP3 与免疫抑制标志关联
-    # 注：表达量为右侧偏态、非正态，改用 Spearman 秩相关（原为 Pearson，已修正）
-    print(f"  --- H3: ZP3 vs 免疫抑制标志 (Spearman rho) ---")
+    # H3: association between ZP3 and immunosuppressive markers
+    # Note: expression is right-skewed and non-normal, so Spearman rank correlation is used (originally Pearson, corrected)
+    print(f"  --- H3: ZP3 vs immunosuppressive markers (Spearman rho) ---")
     rows = []
-    h3_genes = list(dict.fromkeys(IMMUNOSUPP_GENES + M2_GENES + TREG_GENES + CHECKPT_GENES))  # 去重（同一基因在多集合）
+    h3_genes = list(dict.fromkeys(IMMUNOSUPP_GENES + M2_GENES + TREG_GENES + CHECKPT_GENES))  # deduplicate (same gene in multiple sets)
     for gene in h3_genes:
         if gene in expr.index:
             g = pd.to_numeric(expr.loc[gene], errors="coerce")
@@ -105,7 +105,7 @@ def analyze_cohort(name, expr_path, clin_path):
                 rows.append((gene, round(r, 3), round(pp, 4), len(gg)))
     h3 = pd.DataFrame(rows, columns=["gene", "spearman_rho", "p", "n"]).sort_values("spearman_rho", ascending=False)
     print(h3.to_string(index=False))
-    # 复合免疫抑制评分（z-mean of M2+TREG+CHECKPT available genes）
+    # Composite immunosuppression score (z-mean of available M2+TREG+CHECKPT genes)
     sig = [g for g in M2_GENES + TREG_GENES + CHECKPT_GENES if g in expr.index]
     if sig:
         sub = expr.loc[sig, merged.index].apply(pd.to_numeric, errors="coerce")
@@ -113,7 +113,7 @@ def analyze_cohort(name, expr_path, clin_path):
         immuno_score = z.mean(axis=0)
         gg = pd.concat([merged["ZP3"], immuno_score.rename("immuno_score")], axis=1).dropna()
         r, pp = stats.spearmanr(gg["ZP3"], gg["immuno_score"])
-        print(f"  复合免疫抑制评分 vs ZP3: rho={r:.3f}, p={pp:.4g}, n={len(gg)}")
+        print(f"  Composite immunosuppression score vs ZP3: rho={r:.3f}, p={pp:.4g}, n={len(gg)}")
     return merged, h3
 
 if __name__ == "__main__":
@@ -124,4 +124,4 @@ if __name__ == "__main__":
     results["LGG"] = analyze_cohort("TCGA LGG",
         os.path.join(BASE, "TCGA.LGG.sampleMap/HiSeq_TCGA_gene.xena.gz"),
         os.path.join(BASE, "TCGA.LGG.sampleMap/LGG_clinicalMatrix.gz"))
-    print("\n=== H2/H3 分析完成（描述级，需外部验证）===")
+    print("\n=== H2/H3 analysis complete (descriptive level, requires external validation) ===")

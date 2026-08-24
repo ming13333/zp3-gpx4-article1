@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-IMvigor210 队列 ZP3 与免疫治疗反应分析
-分析 ZP3 在尿路上皮癌免疫治疗中的预测价值
+IMvigor210 Cohort ZP3 and Immunotherapy Response Analysis
+Analyzing the predictive value of ZP3 in urothelial cancer immunotherapy
 """
 
 import pandas as pd
@@ -14,144 +14,144 @@ from scipy.stats import mannwhitneyu, chi2_contingency
 import warnings
 warnings.filterwarnings('ignore')
 
-# 设置中文显示
+# Set Chinese font display
 plt.rcParams['font.sans-serif'] = ['SimHei', 'Arial Unicode MS', 'DejaVu Sans']
 plt.rcParams['axes.unicode_minus'] = False
 
 print("=" * 60)
-print("IMvigor210 队列 ZP3 免疫治疗反应分析")
+print("IMvigor210 Cohort ZP3 Immunotherapy Response Analysis")
 print("=" * 60)
 
 # ============================================================
-# 1. 加载数据
+# 1. Load data
 # ============================================================
-print("\n[1] 加载数据...")
+print("\n[1] Loading data...")
 
-# 加载表型数据
+# Load phenotype data
 IMDIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'output', 'immunotherapy_validation')
 pData = pd.read_csv(os.path.join(IMDIR, 'pData_IMvigor210.csv'))
-print(f"  表型数据: {pData.shape[0]} 样本, {pData.shape[1]} 变量")
+print(f"  Phenotype data: {pData.shape[0]} samples, {pData.shape[1]} variables")
 
-# 加载特征数据（基因注释）
+# Load feature data (gene annotations)
 fData = pd.read_csv(os.path.join(IMDIR, 'fData_IMvigor210.csv'))
-print(f"  特征数据: {fData.shape[0]} 基因")
+print(f"  Feature data: {fData.shape[0]} genes")
 
-# 加载表达矩阵
-print("  加载表达矩阵（这可能需要一些时间）...")
+# Load expression matrix
+print("  Loading expression matrix (this may take some time)...")
 exmat = pd.read_csv(os.path.join(IMDIR, 'exmat_censored_IMvigor210.csv'), index_col=0)
-print(f"  表达矩阵: {exmat.shape[0]} 基因 × {exmat.shape[1]} 样本")
+print(f"  Expression matrix: {exmat.shape[0]} genes × {exmat.shape[1]} samples")
 
-# ============ 显式行匹配校验（2026-08-17 科学审计修复）============
-# exmat 行名为 gene_1..N（按 fData 顺序写入）。必须在分析前验证：
-#  (a) 行数与 fData 一致；(b) ZP3 对应行（fData Symbol 列）能被定位且表达合理。
+# ============ Explicit row-matching validation (2026-08-17 scientific audit fix) ============
+# exmat row names are gene_1..N (written in fData order). Must verify before analysis:
+#  (a) row count matches fData; (b) the ZP3 row (fData Symbol column) can be located and is reasonably expressed.
 assert exmat.shape[0] == fData.shape[0], \
-    f"行数不匹配: exmat {exmat.shape[0]} vs fData {fData.shape[0]}"
+    f"Row count mismatch: exmat {exmat.shape[0]} vs fData {fData.shape[0]}"
 fData_tmp = fData.copy()
 fData_tmp['row_name'] = ['gene_' + str(i) for i in range(1, len(fData_tmp) + 1)]
 _sym2row = dict(zip(fData_tmp['Symbol'].astype(str), fData_tmp['row_name']))
 _zp3_row = _sym2row.get('ZP3')
-assert _zp3_row is not None, "fData 中未找到 ZP3 符号"
+assert _zp3_row is not None, "ZP3 symbol not found in fData"
 _zp3_val = exmat.loc[_zp3_row].astype(float)
-assert (_zp3_val > 0).mean() > 0.5, f"ZP3 行非零比例过低: {(_zp3_val > 0).mean():.1%}"
-print(f"  [行匹配校验通过] fData 行数={fData.shape[0]}, ZP3 位于行 '{_zp3_row}' (Entrez 7784), "
-      f"非零比例={(_zp3_val > 0).mean():.1%}, 中位数={_zp3_val.median():.1f}")
+assert (_zp3_val > 0).mean() > 0.5, f"ZP3 row non-zero proportion too low: {(_zp3_val > 0).mean():.1%}"
+print(f"  [Row-matching validation passed] fData rows={fData.shape[0]}, ZP3 located at row '{_zp3_row}' (Entrez 7784), "
+      f"non-zero proportion={(_zp3_val > 0).mean():.1%}, median={_zp3_val.median():.1f}")
 
 # ============================================================
-# 2. 数据预处理
+# 2. Data preprocessing
 # ============================================================
-print("\n[2] 数据预处理...")
+print("\n[2] Data preprocessing...")
 
-# 创建基因名映射（从fData）
+# Create gene name mapping (from fData)
 gene_map = fData.set_index('entrez_id')['symbol'].to_dict()
 
-# 将表达矩阵的行名从gene_XXX转换为实际基因名
-# 表达矩阵的行名是gene_1, gene_2... 对应fData的顺序
+# Convert expression matrix row names from gene_XXX to actual gene names
+# Expression matrix row names are gene_1, gene_2... corresponding to the order of fData
 exmat.index = [gene_map.get(fData.iloc[i, 0], f"gene_{i}") for i in range(len(exmat))]
-print(f"  表达矩阵行名已更新为基因符号")
+print(f"  Expression matrix row names updated to gene symbols")
 
-# 提取ZP3表达
+# Extract ZP3 expression
 if 'ZP3' in exmat.index:
     zp3_expr = exmat.loc['ZP3']
-    print(f"  ZP3 表达已提取: {len(zp3_expr)} 样本")
-    print(f"  ZP3 表达范围: {zp3_expr.min():.2f} - {zp3_expr.max():.2f}")
-    print(f"  ZP3 中位表达: {zp3_expr.median():.2f}")
+    print(f"  ZP3 expression extracted: {len(zp3_expr)} samples")
+    print(f"  ZP3 expression range: {zp3_expr.min():.2f} - {zp3_expr.max():.2f}")
+    print(f"  ZP3 median expression: {zp3_expr.median():.2f}")
 else:
-    print("  错误: ZP3 基因未找到!")
+    print("  Error: ZP3 gene not found!")
     exit(1)
 
-# 合并临床信息
+# Merge clinical information
 pData_aligned = pData.set_index('X').loc[exmat.columns]
-print(f"  对齐后样本数: {len(pData_aligned)}")
+print(f"  Number of samples after alignment: {len(pData_aligned)}")
 
 # ============================================================
-# 3. ZP3 表达与治疗反应分析
+# 3. ZP3 expression and treatment response analysis
 # ============================================================
-print("\n[3] ZP3 表达与治疗反应分析...")
+print("\n[3] ZP3 expression and treatment response analysis...")
 
-# 添加ZP3表达到临床数据
+# Add ZP3 expression to clinical data
 pData_aligned['ZP3_expr'] = zp3_expr.values
 
-# 定义响应组（排除NE - 不可评估）
+# Define response groups (exclude NE - not evaluable)
 responders = pData_aligned[pData_aligned['binaryResponse'] == 'CR/PR']
 non_responders = pData_aligned[pData_aligned['binaryResponse'] == 'SD/PD']
 
-print(f"  响应者 (CR/PR): {len(responders)} 例")
-print(f"  非响应者 (SD/PD): {len(non_responders)} 例")
+print(f"  Responders (CR/PR): {len(responders)} cases")
+print(f"  Non-responders (SD/PD): {len(non_responders)} cases")
 
-# ZP3 表达在响应组间的差异
+# Difference in ZP3 expression between response groups
 zp3_resp = responders['ZP3_expr']
 zp3_nonresp = non_responders['ZP3_expr']
 
-# Mann-Whitney U 检验
+# Mann-Whitney U test
 stat_u, p_u = mannwhitneyu(zp3_resp, zp3_nonresp, alternative='two-sided')
-print(f"\n  ZP3 表达差异检验 (Mann-Whitney U):")
-print(f"    响应者 中位数: {zp3_resp.median():.2f} (IQR: {zp3_resp.quantile(0.25):.2f} - {zp3_resp.quantile(0.75):.2f})")
-print(f"    非响应者 中位数: {zp3_nonresp.median():.2f} (IQR: {zp3_nonresp.quantile(0.25):.2f} - {zp3_nonresp.quantile(0.75):.2f})")
-print(f"    U统计量: {stat_u:.2f}, p值: {p_u:.4f}")
+print(f"\n  ZP3 expression difference test (Mann-Whitney U):")
+print(f"    Responders median: {zp3_resp.median():.2f} (IQR: {zp3_resp.quantile(0.25):.2f} - {zp3_resp.quantile(0.75):.2f})")
+print(f"    Non-responders median: {zp3_nonresp.median():.2f} (IQR: {zp3_nonresp.quantile(0.25):.2f} - {zp3_nonresp.quantile(0.75):.2f})")
+print(f"    U statistic: {stat_u:.2f}, p-value: {p_u:.4f}")
 
-# 效应量 (rank-biserial correlation)
-# 2026-08-17 审计修复: 统一 r = 2U/(n1*n2) - 1 (U 为 responder 组), positive = responders 更高
+# Effect size (rank-biserial correlation)
+# 2026-08-17 audit fix: unify r = 2U/(n1*n2) - 1 (U for responder group), positive = responders higher
 n1, n2 = len(zp3_resp), len(zp3_nonresp)
 r = (2 * stat_u) / (n1 * n2) - 1
-print(f"    效应量 (rank-biserial r): {r:.4f}  (positive = higher ZP3 in responders)")
+print(f"    Effect size (rank-biserial r): {r:.4f}  (positive = higher ZP3 in responders)")
 
 # ============================================================
-# 4. ZP3 高/低表达分组分析
+# 4. ZP3 high/low expression group analysis
 # ============================================================
-print("\n[4] ZP3 高/低表达分组分析...")
+print("\n[4] ZP3 high/low expression group analysis...")
 
-# 使用中位数分割
+# Split using median
 median_zp3 = pData_aligned['ZP3_expr'].median()
 pData_aligned['ZP3_group'] = pData_aligned['ZP3_expr'].apply(lambda x: 'High' if x >= median_zp3 else 'Low')
 
-# 列联表
+# Contingency table
 contingency = pd.crosstab(pData_aligned['ZP3_group'], pData_aligned['binaryResponse'])
-print("\n  ZP3 分组 × 治疗反应 列联表:")
+print("\n  ZP3 group × treatment response contingency table:")
 print(contingency)
 
-# 卡方检验
+# Chi-square test
 chi2, p_chi, dof, expected = chi2_contingency(contingency)
-print(f"\n  卡方检验: χ² = {chi2:.2f}, p = {p_chi:.4f}")
+print(f"\n  Chi-square test: χ² = {chi2:.2f}, p = {p_chi:.4f}")
 
-# 计算响应率
+# Calculate response rates
 response_rates = pData_aligned.groupby('ZP3_group')['binaryResponse'].apply(
     lambda x: (x == 'CR/PR').sum() / len(x) * 100
 )
-print(f"\n  各组响应率:")
+print(f"\n  Response rates by group:")
 for group, rate in response_rates.items():
     print(f"    {group} ZP3: {rate:.1f}%")
 
 # ============================================================
-# 5. 生存分析
+# 5. Survival analysis
 # ============================================================
-print("\n[5] 生存分析...")
+print("\n[5] Survival analysis...")
 
-# 检查生存数据
+# Check survival data
 if 'OS' in pData_aligned.columns and 'censored' in pData_aligned.columns:
     from lifelines import KaplanMeierFitter
     from lifelines.statistics import logrank_test
 
-    # KM曲线
+    # KM curves
     kmf_high = KaplanMeierFitter()
     kmf_low = KaplanMeierFitter()
 
@@ -165,18 +165,18 @@ if 'OS' in pData_aligned.columns and 'censored' in pData_aligned.columns:
                 pData_aligned.loc[mask_low, 'censored'],
                 label='ZP3 Low')
 
-    # Log-rank 检验
+    # Log-rank test
     results = logrank_test(pData_aligned.loc[mask_high, 'OS'],
                            pData_aligned.loc[mask_low, 'OS'],
                            pData_aligned.loc[mask_high, 'censored'],
                            pData_aligned.loc[mask_low, 'censored'])
 
-    print(f"  中位生存期:")
-    print(f"    ZP3 High: {kmf_high.median_survival_time_:.1f} 天")
-    print(f"    ZP3 Low: {kmf_low.median_survival_time_:.1f} 天")
-    print(f"  Log-rank 检验: χ² = {results.test_statistic:.2f}, p = {results.p_value:.4f}")
+    print(f"  Median survival:")
+    print(f"    ZP3 High: {kmf_high.median_survival_time_:.1f} days")
+    print(f"    ZP3 Low: {kmf_low.median_survival_time_:.1f} days")
+    print(f"  Log-rank test: χ² = {results.test_statistic:.2f}, p = {results.p_value:.4f}")
 
-    # 绘制KM曲线
+    # Plot KM curves
     fig, ax = plt.subplots(figsize=(10, 6))
     kmf_high.plot_survival_function(ax=ax, ci_show=True)
     kmf_low.plot_survival_function(ax=ax, ci_show=True)
@@ -190,16 +190,16 @@ if 'OS' in pData_aligned.columns and 'censored' in pData_aligned.columns:
             bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
     plt.tight_layout()
     plt.savefig('fig_imvigor210_km_zp3.png', dpi=300, bbox_inches='tight')
-    print("  KM曲线已保存: fig_imvigor210_km_zp3.png")
+    print("  KM curve saved: fig_imvigor210_km_zp3.png")
 else:
-    print("  警告: 生存数据列不完整，跳过生存分析")
+    print("  Warning: Survival data columns incomplete, skipping survival analysis")
 
 # ============================================================
-# 6. 免疫特征相关性分析
+# 6. Immune signature correlation analysis
 # ============================================================
-print("\n[6] 免疫特征相关性分析...")
+print("\n[6] Immune signature correlation analysis...")
 
-# 定义免疫特征基因集
+# Define immune signature gene sets
 immune_signatures = {
     'T_cell_exhaustion': ['PDCD1', 'CTLA4', 'LAG3', 'HAVCR2', 'TIGIT', 'TOX'],
     'Cytolytic_activity': ['GZMA', 'GZMB', 'PRF1', 'IFNG'],
@@ -210,17 +210,17 @@ immune_signatures = {
     'IFN_gamma_response': ['STAT1', 'IRF1', 'CXCL10', 'CXCL9', 'IDO1']
 }
 
-# 计算每个特征的平均表达
-print("\n  免疫特征与ZP3相关性:")
+# Calculate mean expression for each signature
+print("\n  Correlation between immune signatures and ZP3:")
 correlation_results = []
 
 for sig_name, genes in immune_signatures.items():
-    # 检查基因是否存在
+    # Check whether genes exist
     valid_genes = [g for g in genes if g in exmat.index]
     if len(valid_genes) >= 2:
-        # 计算特征评分（平均表达）
+        # Calculate signature score (mean expression)
         sig_score = exmat.loc[valid_genes].mean(axis=0)
-        # 与ZP3计算Spearman相关
+        # Compute Spearman correlation with ZP3
         rho, p_spear = stats.spearmanr(zp3_expr.values, sig_score.values)
         correlation_results.append({
             'Signature': sig_name,
@@ -234,13 +234,13 @@ for sig_name, genes in immune_signatures.items():
         print(sig_str)
 
 # ============================================================
-# 7. 可视化
+# 7. Visualization
 # ============================================================
-print("\n[7] 生成可视化...")
+print("\n[7] Generating visualizations...")
 
 fig, axes = plt.subplots(2, 2, figsize=(14, 12))
 
-# 7.1 ZP3表达分布（按响应组）
+# 7.1 ZP3 expression distribution (by response group)
 ax1 = axes[0, 0]
 data_plot = pData_aligned[pData_aligned['binaryResponse'].isin(['CR/PR', 'SD/PD'])]
 sns.boxplot(data=data_plot, x='binaryResponse', y='ZP3_expr', ax=ax1,
@@ -254,7 +254,7 @@ ax1.text(0.5, 0.95, f'Mann-Whitney p = {p_u:.3f}',
          transform=ax1.transAxes, ha='center', va='top',
          fontsize=10, bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
 
-# 7.2 ZP3高/低组响应率
+# 7.2 Response rate in ZP3 high/low groups
 ax2 = axes[0, 1]
 response_rates_df = pd.DataFrame({
     'ZP3 Group': ['Low', 'High'],
@@ -272,7 +272,7 @@ ax2.text(0.5, 0.95, f'χ² p = {p_chi:.3f}',
          transform=ax2.transAxes, ha='center', va='top',
          fontsize=10, bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
 
-# 7.3 免疫特征相关性热图
+# 7.3 Immune signature correlation heatmap
 ax3 = axes[1, 0]
 if correlation_results:
     corr_df = pd.DataFrame(correlation_results)
@@ -282,7 +282,7 @@ if correlation_results:
     ax3.set_title('ZP3 vs Immune Signatures', fontsize=12)
     ax3.set_ylabel('')
 
-# 7.4 ZP3 表达分布（整体）
+# 7.4 ZP3 expression distribution (overall)
 ax4 = axes[1, 1]
 ax4.hist(pData_aligned['ZP3_expr'], bins=30, color='steelblue', edgecolor='black', alpha=0.7)
 ax4.axvline(median_zp3, color='red', linestyle='--', linewidth=2, label=f'Median = {median_zp3:.2f}')
@@ -294,14 +294,14 @@ ax4.legend()
 plt.suptitle('IMvigor210 Cohort: ZP3 and Immunotherapy Response', fontsize=14, y=1.02)
 plt.tight_layout()
 plt.savefig('fig_imvigor210_zp3_analysis.png', dpi=300, bbox_inches='tight')
-print("  主图已保存: fig_imvigor210_zp3_analysis.png")
+print("  Main figure saved: fig_imvigor210_zp3_analysis.png")
 
 # ============================================================
-# 8. 保存结果
+# 8. Save results
 # ============================================================
-print("\n[8] 保存结果...")
+print("\n[8] Saving results...")
 
-# 保存详细结果
+# Save detailed results
 results_summary = {
     'Cohort': 'IMvigor210',
     'Cancer_Type': 'Urothelial_Carcinoma',
@@ -319,42 +319,42 @@ results_summary = {
     'Response_rate_High_ZP3': response_rates.get('High', 0)
 }
 
-# 保存为CSV
+# Save as CSV
 results_df = pd.DataFrame([results_summary])
 results_df.to_csv(os.path.join(IMDIR, 'imvigor210_zp3_results.csv'), index=False)
-print("  结果已保存: imvigor210_zp3_results.csv")
+print("  Results saved: imvigor210_zp3_results.csv")
 
-# 保存免疫特征相关性
+# Save immune signature correlations
 if correlation_results:
     corr_df = pd.DataFrame(correlation_results)
     corr_df.to_csv(os.path.join(IMDIR, 'imvigor210_zp3_immune_correlations.csv'), index=False)
-    print("  免疫相关性已保存: imvigor210_zp3_immune_correlations.csv")
+    print("  Immune correlations saved: imvigor210_zp3_immune_correlations.csv")
 
 # ============================================================
-# 9. 总结
+# 9. Summary
 # ============================================================
 print("\n" + "=" * 60)
-print("分析总结")
+print("Analysis Summary")
 print("=" * 60)
 
 print(f"""
-队列: IMvigor210 (尿路上皮癌, Atezolizumab 治疗)
-样本量: {len(pData_aligned)} 例 (CR/PR: {len(responders)}, SD/PD: {len(non_responders)})
+Cohort: IMvigor210 (Urothelial carcinoma, Atezolizumab treatment)
+Sample size: {len(pData_aligned)} cases (CR/PR: {len(responders)}, SD/PD: {len(non_responders)})
 
-主要发现:
-1. ZP3 表达差异:
-   - 响应者 vs 非响应者: p = {p_u:.4f}
-   - 效应量 r = {r:.4f}
+Key findings:
+1. ZP3 expression difference:
+   - Responders vs non-responders: p = {p_u:.4f}
+   - Effect size r = {r:.4f}
 
-2. 治疗反应率:
+2. Treatment response rate:
    - ZP3 Low: {response_rates.get('Low', 0):.1f}%
    - ZP3 High: {response_rates.get('High', 0):.1f}%
-   - 卡方检验 p = {p_chi:.4f}
+   - Chi-square test p = {p_chi:.4f}
 
-结论:
-{"ZP3 高表达与较差的免疫治疗反应相关" if r > 0 and p_u < 0.05 else
- "ZP3 低表达与较差的免疫治疗反应相关" if r < 0 and p_u < 0.05 else
- "ZP3 表达与免疫治疗反应无显著关联"}
+Conclusion:
+{"ZP3 high expression is associated with poorer immunotherapy response" if r > 0 and p_u < 0.05 else
+ "ZP3 low expression is associated with poorer immunotherapy response" if r < 0 and p_u < 0.05 else
+ "ZP3 expression is not significantly associated with immunotherapy response"}
 """)
 
-print("\n分析完成!")
+print("\nAnalysis complete!")

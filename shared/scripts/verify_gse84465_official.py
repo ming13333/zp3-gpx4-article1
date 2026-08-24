@@ -1,17 +1,17 @@
 # -*- coding: utf-8 -*-
 """
-GSE84465 官方注释版分析（2026-08-10 v3 更正）
+GSE84465 official annotation analysis (2026-08-10 v3 correction)
 
-背景：v1/v2 的 GSE84465 分析用 marker 打分门控（pan-myeloid 均值>0），把 62.4%
-  细胞判为"髓系"。经 GSE 官方 series matrix 注释核对，该门控把 302 个官方
-  Neoplastic（肿瘤）细胞 + OPC/Vascular 等误判进髓系池，导致髓系内 ZP3↔TREM2
-  共富集出现虚假"反向"（OR=0.57）。本脚本用官方注释重算，得到更正结论。
+Background: the v1/v2 GSE84465 analysis used marker scoring gating (pan-myeloid mean>0), classifying 62.4%
+  cells as “myeloid”. After cross-checking with the official GSE series matrix annotation, this gating misclassified 302 official
+  Neoplastic (tumor) cells + OPC/Vascular etc. into the myeloid pool, causing the intra-myeloid ZP3↔TREM2
+  co-enrichment to appear as a false “reverse” (OR=0.57). This script recalculates with the official annotation and reaches a corrected conclusion.
 
-产出：
-  - gse84465_official_annotation.csv   （每细胞官方类型）
-  - gse84465_official_coenrichment.csv （官方池内共富集）
-  - gse84465_official_source.csv       （ZP3 细胞类型富集）
-  - 与 GSE182109 的跨队列对比更新
+Outputs:
+  - gse84465_official_annotation.csv   （per-cell official type）
+  - gse84465_official_coenrichment.csv （co-enrichment within the official pool）
+  - gse84465_official_source.csv       （ZP3 cell-type enrichment）
+  - Updated cross-cohort comparison with GSE182109
 """
 import os, gzip, re
 import numpy as np
@@ -73,23 +73,23 @@ def main():
     n = len(zp3)
 
     print("=" * 74)
-    print("GSE84465 官方注释版：ZP3 ↔ TREM2 共富集 + 来源分析（v3 更正）")
-    print("  官方类型构成:")
+    print("GSE84465 official annotation version: ZP3 ↔ TREM2 co-enrichment + source analysis (v3 correction)")
+    print("  Official type composition:")
     vc = pd.Series(ot).value_counts()
     for t, c in vc.items():
         print("    %-15s %5d (%4.1f%%)" % (t, c, 100 * c / n))
 
-    # 官方 Immune cell 池（GEO 注释中的免疫细胞总池）
+    # Official Immune cell pool (total immune cell pool in GEO annotation)
     rows = []
-    print("\n[共富集] ZP3+ 是否富集 TREM2+（官方注释池）")
-    pools = [("全细胞", np.ones(n, bool)),
-             ("官方 Immune cell", ot == "Immune cell"),
-             ("官方 Neoplastic", ot == "Neoplastic")]
+    print("\n[Co-enrichment] Whether ZP3+ is enriched for TREM2+ (official annotation pool)")
+    pools = [("All cells", np.ones(n, bool)),
+             ("Official Immune cell", ot == "Immune cell"),
+             ("Official Neoplastic", ot == "Neoplastic")]
     for label, mask in pools:
         aa, ab, ba, bb, OR, p = fisher(zpos[mask], tpos[mask])
         frac = aa / (aa + ab) if aa + ab else float("nan")
         bg = tpos[mask].mean()
-        print("  [%s] n=%d | ZP3+&TREM2+=%d/%d | ZP3+ 中 TREM2+=%.1f%% (背景 %.1f%%) | OR=%.2f p=%.3g"
+        print("  [%s] n=%d | ZP3+&TREM2+=%d/%d | TREM2+ in ZP3+=%.1f%% (background %.1f%%) | OR=%.2f p=%.3g"
               % (label, int(mask.sum()), aa, aa + ab, 100 * frac, 100 * bg, OR, p))
         rows.append({"pool": label, "n": int(mask.sum()), "n_zp3pos": aa + ab,
                      "n_zp3pos_trem2pos": aa,
@@ -97,8 +97,8 @@ def main():
                      "bg_trem2pos": round(float(bg), 4), "OR": round(OR, 2), "p": p})
     pd.DataFrame(rows).to_csv(os.path.join(OUT, "gse84465_official_coenrichment.csv"), index=False)
 
-    # ZP3 来源：各官方类型富集
-    print("\n[来源] ZP3+ 细胞是否偏向某官方类型")
+    # ZP3 source: enrichment per official cell type
+    print("\n[Source] Whether ZP3+ cells are biased toward a particular official cell type")
     src = []
     for t in vc.index:
         m = ot == t
@@ -108,14 +108,14 @@ def main():
             OR, p = stats.fisher_exact([[oo, oo2], [nn, nn2]])
             frac = 100 * oo / max(1, oo + oo2)
             bg = 100 * m.mean()
-            print("  %-15s: ZP3+ 中占比=%.1f%% (背景 %.1f%%) | OR=%.2f p=%.3g"
+            print("  %-15s: proportion in ZP3+=%.1f%% (background %.1f%%) | OR=%.2f p=%.3g"
                   % (t, frac, bg, OR, p))
             src.append({"cell_type": t, "frac_in_zp3pos": round(frac, 2),
                         "bg_pct": round(bg, 2), "OR": round(OR, 2), "p": p})
     pd.DataFrame(src).to_csv(os.path.join(OUT, "gse84465_official_source.csv"), index=False)
 
-    # ZP3+ 官方类型分布
-    print("\n[分布] ZP3+ 细胞官方类型 (n=%d):" % int(zpos.sum()))
+    # ZP3+ official cell type distribution
+    print("\n[Distribution] Official cell types of ZP3+ cells (n=%d):" % int(zpos.sum()))
     print(pd.Series(ot[zpos]).value_counts().to_string())
     print("=" * 74)
 

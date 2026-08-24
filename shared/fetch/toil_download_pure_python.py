@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-纯 Python 流式下载 ZP3 转录本 isoform TPM (Toil Hub)
+Pure Python streaming download of ZP3 transcript isoform TPM (Toil Hub)
 
-避免 shell pipe，直接用 requests + gzip stream 过滤
+Avoid shell pipes, filter directly with requests + gzip stream
 """
 
 import requests
@@ -22,7 +22,7 @@ ZP3_TRANSCRIPTS = {
     "ENST00000336517": "ZP3_transcript_9exon_44574bp",
     "ENST00000394857": "ZP3_CANONICAL_8exon_17119bp",
     "ENST00000416245": "ZP3_transcript_7exon_13433bp",
-    "ENST00000394860": "ZP3_CANCER_CANDIDATE_5exon_8593bp",  # 最短蛋白编码, 缺信号肽候选
+    "ENST00000394860": "ZP3_CANCER_CANDIDATE_5exon_8593bp",  # shortest protein-coding, candidate lacking signal peptide
     "ENST00000466960": "ZP3_retained_intron",
     "ENST00000479793": "ZP3_CDS_not_defined_2exon",
     "ENST00000467555": "ZP3_CDS_not_defined_4exon",
@@ -31,13 +31,13 @@ ZP3_TRANSCRIPTS = {
 
 def main():
     print("=" * 60)
-    print("纯 Python 流式下载: ZP3 转录本 isoform TPM")
+    print("Pure Python streaming download: ZP3 transcript isoform TPM")
     print(f"URL: {TOIL_URL}")
-    print(f"目标转录本: {len(ZP3_TRANSCRIPTS)}")
+    print(f"Target transcripts: {len(ZP3_TRANSCRIPTS)}")
     print("=" * 60)
     
-    # 流式下载 + 逐行过滤
-    print("\n[1/3] 流式下载 + 逐行过滤 ZP3 转录本...")
+    # Streaming download + line-by-line filtering
+    print("\n[1/3] Streaming download + line-by-line filtering of ZP3 transcripts...")
     t0 = time.time()
     
     header = None
@@ -50,13 +50,13 @@ def main():
     with requests.get(TOIL_URL, stream=True, timeout=(30, 600)) as r:
         r.raise_for_status()
         content_length = int(r.headers.get('Content-Length', 0))
-        print(f"  文件大小: {content_length / 1e9:.2f} GB")
-        print("  开始流式读取 (预计 10-40 分钟)...")
+        print(f"  File size: {content_length / 1e9:.2f} GB")
+        print("  Starting streaming read (estimated 10-40 minutes)...")
         
-        # 使用迭代器读 raw bytes
+        # Use iterator to read raw bytes
         raw_iter = r.iter_content(chunk_size=65536)  # 64KB chunks
         
-        # 使用 zlib.decompressobj() 做流式 gzip 解压
+        # Use zlib.decompressobj() for streaming gzip decompression
         import zlib
         d = zlib.decompressobj(16 + zlib.MAX_WBITS)  # gzip mode
         
@@ -70,7 +70,7 @@ def main():
             decompressed = d.decompress(chunk)
             buffer += decompressed
             
-            # 处理 buffer 中的完整行
+            # Process complete lines in buffer
             while b"\n" in buffer:
                 line_bytes, buffer = buffer.split(b"\n", 1)
                 total_lines += 1
@@ -81,31 +81,31 @@ def main():
                     continue
                 
                 if total_lines == 1:
-                    # 第一行是 header
+                    # First line is the header
                     header = line
-                    print(f"  列头: {line[:100]}...")
-                    # 保存 header
+                    print(f"  Header: {line[:100]}...")
+                    # Save header
                     with open(OUTPUT_HEADER, "w") as fh:
                         fh.write(line + "\n")
                     continue
                 
-                # 检查是否为 ZP3 转录本
+                # Check if it is a ZP3 transcript
                 for tid in enst_set:
                     if line.startswith(tid + "\t"):
                         found_lines[tid] = line
                         found_count += 1
                         break
             
-            # 进度
-            if total_bytes - last_report > 50_000_000:  # 每 50MB
+            # Progress
+            if total_bytes - last_report > 50_000_000:  # every 50MB
                 elapsed = time.time() - t0
                 pct = total_bytes / content_length * 100 if content_length else 0
                 mb = total_bytes / 1e6
                 rate = mb / (elapsed / 60) if elapsed > 0 else 0
-                print(f"  [{elapsed/60:.1f} min] {mb:.0f} MB / {content_length/1e6:.0f} MB ({pct:.1f}%), ~{rate:.1f} MB/min, 找到 {found_count} 行")
+                print(f"  [{elapsed/60:.1f} min] {mb:.0f} MB / {content_length/1e6:.0f} MB ({pct:.1f}%), ~{rate:.1f} MB/min, found {found_count} lines")
                 last_report = total_bytes
         
-        # 处理剩余的 buffer
+        # Process the remaining buffer
         if buffer:
             total_lines += 1
             try:
@@ -119,48 +119,48 @@ def main():
                 pass
     
     elapsed = time.time() - t0
-    print(f"  流式读取完成! 耗时: {elapsed/60:.1f} 分钟, 总行数: {total_lines}, 找到: {found_count}")
+    print(f"  Streaming read complete! Elapsed: {elapsed/60:.1f} min, total lines: {total_lines}, found: {found_count}")
     
-    # 步骤2: 写结果
-    print("\n[2/3] 写入结果文件...")
+    # Step 2: Write results
+    print("\n[2/3] Writing result file...")
     
     with open(OUTPUT_TSV, "w", encoding="utf-8") as f:
-        # 写 header
+        # Write header
         if header:
             f.write(header + "\n")
-        # 写 ZP3 行
+        # Write ZP3 rows
         for tid in sorted(found_lines.keys()):
             f.write(found_lines[tid] + "\n")
     
     size_on_disk = os.path.getsize(OUTPUT_TSV)
-    print(f"  输出文件: {OUTPUT_TSV}")
-    print(f"  大小: {size_on_disk / 1e6:.2f} MB")
+    print(f"  Output file: {OUTPUT_TSV}")
+    print(f"  Size: {size_on_disk / 1e6:.2f} MB")
     
-    # 报告找到的转录本
-    print(f"\n  找到转录本 ({len(found_lines)}/{len(ZP3_TRANSCRIPTS)}):")
+    # Report found transcripts
+    print(f"\n  Found transcripts ({len(found_lines)}/{len(ZP3_TRANSCRIPTS)}):")
     for tid in sorted(found_lines.keys()):
         print(f"    ✓ {tid} ({ZP3_TRANSCRIPTS[tid]})")
     for tid in sorted(set(ZP3_TRANSCRIPTS) - set(found_lines.keys())):
-        print(f"    ✗ {tid} ({ZP3_TRANSCRIPTS[tid]}) — 未在数据中找到 (可能表达量为 0)")
+        print(f"    ✗ {tid} ({ZP3_TRANSCRIPTS[tid]}) — not found in data (expression may be 0)")
     
-    # 步骤3: 元数据
-    print("\n[3/3] 生成元数据...")
+    # Step 3: Metadata
+    print("\n[3/3] Generating metadata...")
     with open(OUTPUT_META, "w", encoding="utf-8") as f:
-        f.write(f"# ZP3 转录本 isoform TPM 数据\n")
-        f.write(f"# 来源: {TOIL_URL}\n")
-        f.write(f"# 下载时间: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write(f"# 耗时: {elapsed/60:.1f} 分钟\n")
-        f.write(f"# 总行数: {total_lines}\n")
-        f.write(f"# 找到转录本: {len(found_lines)}/{len(ZP3_TRANSCRIPTS)}\n")
-        f.write(f"# 数据格式: log2(TPM + 0.001) RSEM, 第1列=transcript_id, 后续列=样本\n")
-        f.write(f"# 转录本列表:\n")
+        f.write(f"# ZP3 transcript isoform TPM data\n")
+        f.write(f"# Source: {TOIL_URL}\n")
+        f.write(f"# Download time: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"# Elapsed: {elapsed/60:.1f} minutes\n")
+        f.write(f"# Total lines: {total_lines}\n")
+        f.write(f"# Transcripts found: {len(found_lines)}/{len(ZP3_TRANSCRIPTS)}\n")
+        f.write(f"# Data format: log2(TPM + 0.001) RSEM, column 1=transcript_id, subsequent columns=samples\n")
+        f.write(f"# Transcript list:\n")
         for tid in sorted(found_lines.keys()):
             f.write(f"#   {tid} = {ZP3_TRANSCRIPTS[tid]}\n")
         for tid in sorted(set(ZP3_TRANSCRIPTS) - set(found_lines.keys())):
-            f.write(f"#   (缺失) {tid} = {ZP3_TRANSCRIPTS[tid]}\n")
+            f.write(f"#   (missing) {tid} = {ZP3_TRANSCRIPTS[tid]}\n")
     
-    print(f"  元数据: {OUTPUT_META}")
-    print("\n✓ 完成!")
+    print(f"  Metadata: {OUTPUT_META}")
+    print("\n✓ Done!")
     return True
 
 if __name__ == "__main__":

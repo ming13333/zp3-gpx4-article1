@@ -12,8 +12,8 @@ def _project_root():
     return _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 ROOT = _project_root()
 """
-获取 GSE121810 胶质瘤免疫治疗数据集
-数据来源：GEO FTP 补充文件
+Fetch GSE121810 glioma immunotherapy dataset
+Data source: GEO FTP supplementary files
 """
 import os
 import requests
@@ -23,40 +23,40 @@ import numpy as np
 OUT_DIR = os.path.join(ROOT, "output", "h2_bulk")
 os.makedirs(OUT_DIR, exist_ok=True)
 
-# 探测补充文件
-print('探测 GSE121810 补充文件...')
+# Probe supplementary files
+print('Probing GSE121810 supplementary files...')
 url = 'https://ftp.ncbi.nlm.nih.gov/geo/series/GSE121nnn/GSE121810/suppl/'
 try:
     r = requests.get(url, timeout=30)
-    print(f'状态码: {r.status_code}')
-    # 解析 HTML 列表
+    print(f'Status code: {r.status_code}')
+    # Parse HTML list
     import re
     files = re.findall(r'href="([^"]+)"', r.text)
-    print(f'找到 {len(files)} 个文件:')
+    print(f'Found {len(files)} files:')
     for f in files:
         print(f'  {f}')
 except Exception as e:
-    print(f'探测失败: {e}')
+    print(f'Probe failed: {e}')
     exit(1)
 
-# 下载补充文件
-print('\n下载补充文件...')
+# Download supplementary files
+print('\nDownloading supplementary files...')
 for file in files:
     if file.endswith('.xlsx') or file.endswith('.csv') or file.endswith('.txt.gz'):
         file_url = f'https://ftp.ncbi.nlm.nih.gov/geo/series/GSE121nnn/GSE121810/suppl/{file}'
         local_file = os.path.join(OUT_DIR, file)
-        print(f'下载 {file}...')
+        print(f'Downloading {file}...')
         try:
             r = requests.get(file_url, timeout=300)
             r.raise_for_status()
             with open(local_file, 'wb') as f:
                 f.write(r.content)
-            print(f'  保存: {local_file} ({len(r.content)} bytes)')
+            print(f'  Saved: {local_file} ({len(r.content)} bytes)')
         except Exception as e:
-            print(f'  下载失败: {e}')
+            print(f'  Download failed: {e}')
 
-# 读取下载的文件
-print('\n读取下载的文件...')
+# Read downloaded files
+print('\nReading downloaded files...')
 for file in os.listdir(OUT_DIR):
     if file.startswith('GSE121810'):
         file_path = os.path.join(OUT_DIR, file)
@@ -64,24 +64,24 @@ for file in os.listdir(OUT_DIR):
         try:
             if file.endswith('.xlsx'):
                 df = pd.read_excel(file_path, nrows=5)
-                print(f'形状: {df.shape}')
-                print(f'列名: {list(df.columns)[:10]}...')
+                print(f'Shape: {df.shape}')
+                print(f'Columns: {list(df.columns)[:10]}...')
                 print(df.head(2).to_string())
             elif file.endswith('.csv'):
                 df = pd.read_csv(file_path, nrows=5)
-                print(f'形状: {df.shape}')
-                print(f'列名: {list(df.columns)[:10]}...')
+                print(f'Shape: {df.shape}')
+                print(f'Columns: {list(df.columns)[:10]}...')
                 print(df.head(2).to_string())
             elif file.endswith('.txt.gz'):
                 df = pd.read_csv(file_path, sep='\t', nrows=5, compression='gzip')
-                print(f'形状: {df.shape}')
-                print(f'列名: {list(df.columns)[:10]}...')
+                print(f'Shape: {df.shape}')
+                print(f'Columns: {list(df.columns)[:10]}...')
                 print(df.head(2).to_string())
         except Exception as e:
-            print(f'读取失败: {e}')
+            print(f'Read failed: {e}')
 
-# 下载 series matrix
-print('\n下载 series matrix...')
+# Download series matrix
+print('\nDownloading series matrix...')
 series_url = 'https://ftp.ncbi.nlm.nih.gov/geo/series/GSE121nnn/GSE121810/matrix/GSE121810_series_matrix.txt.gz'
 series_file = os.path.join(OUT_DIR, 'GSE121810_series_matrix.txt.gz')
 try:
@@ -89,6 +89,6 @@ try:
     r.raise_for_status()
     with open(series_file, 'wb') as f:
         f.write(r.content)
-    print(f'保存: {series_file} ({len(r.content)} bytes)')
+    print(f'Saved: {series_file} ({len(r.content)} bytes)')
 except Exception as e:
-    print(f'下载失败: {e}')
+    print(f'Download failed: {e}')

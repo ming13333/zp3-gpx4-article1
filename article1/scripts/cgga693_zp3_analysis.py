@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-CGGA-693 胶质瘤队列 ZP3 分析
-分析ZP3在胶质瘤中的表达模式、临床关联、免疫特征相关性和预后价值
+CGGA-693 Glioma Cohort ZP3 Analysis
+Analyze ZP3 expression patterns, clinical associations, immune feature correlations, and prognostic value in glioma
 """
 
 import pandas as pd
@@ -17,46 +17,46 @@ warnings.filterwarnings('ignore')
 plt.rcParams['font.sans-serif'] = ['SimHei', 'DejaVu Sans']
 plt.rcParams['axes.unicode_minus'] = False
 
-# 设置路径
+# Set paths
 base_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'output', 'cgga_validation')
 output_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'article1', 'results')
 os.makedirs(output_dir, exist_ok=True)
 
-print("=== CGGA-693 胶质瘤队列 ZP3 分析 ===")
+print("=== CGGA-693 Glioma Cohort ZP3 Analysis ===")
 print()
 
-# 1. 加载数据
-print("1. 加载数据...")
+# 1. Load data
+print("1. Loading data...")
 clinical = pd.read_csv(os.path.join(base_dir, 'CGGA.mRNAseq_693_clinical.20200506.txt'), sep='\t')
 expr = pd.read_csv(os.path.join(base_dir, 'CGGA.mRNAseq_693.RSEM-genes.20200506.txt'), sep='\t', index_col=0)
 
-print(f"  临床数据: {clinical.shape[0]} 个样本")
-print(f"  表达矩阵: {expr.shape[0]} 个基因 x {expr.shape[1]} 个样本")
+print(f"  Clinical data: {clinical.shape[0]} samples")
+print(f"  Expression matrix: {expr.shape[0]} genes x {expr.shape[1]} samples")
 
-# 2. 数据预处理
-print("\n2. 数据预处理...")
+# 2. Data preprocessing
+print("\n2. Data preprocessing...")
 
-# 提取ZP3表达
+# Extract ZP3 expression
 if 'ZP3' in expr.index:
     zp3_expr = expr.loc['ZP3']
-    print(f"  ZP3 表达数据提取成功: {len(zp3_expr)} 个样本")
+    print(f"  ZP3 expression data extracted successfully: {len(zp3_expr)} samples")
 else:
-    print("  错误: ZP3 基因未找到!")
+    print("  Error: ZP3 gene not found!")
     exit(1)
 
-# 对齐临床数据和表达数据
+# Align clinical data and expression data
 common_samples = list(set(clinical['CGGA_ID']) & set(zp3_expr.index))
-print(f"  共同样本数: {len(common_samples)}")
+print(f"  Number of common samples: {len(common_samples)}")
 
 clinical_aligned = clinical[clinical['CGGA_ID'].isin(common_samples)].set_index('CGGA_ID')
 zp3_aligned = zp3_expr[common_samples]
 
-print(f"  对齐后样本数: {len(clinical_aligned)}")
+print(f"  Number of samples after alignment: {len(clinical_aligned)}")
 
-# 3. ZP3表达分布分析
-print("\n3. ZP3表达分布分析...")
+# 3. ZP3 expression distribution analysis
+print("\n3. ZP3 expression distribution analysis...")
 
-# ZP3表达统计
+# ZP3 expression statistics
 zp3_stats = {
     'Mean': zp3_aligned.mean(),
     'Median': zp3_aligned.median(),
@@ -67,47 +67,47 @@ zp3_stats = {
     'Q75': zp3_aligned.quantile(0.75)
 }
 
-print(f"  均值: {zp3_stats['Mean']:.2f}")
-print(f"  中位数: {zp3_stats['Median']:.2f}")
-print(f"  标准差: {zp3_stats['Std']:.2f}")
-print(f"  范围: {zp3_stats['Min']:.2f} - {zp3_stats['Max']:.2f}")
+print(f"  Mean: {zp3_stats['Mean']:.2f}")
+print(f"  Median: {zp3_stats['Median']:.2f}")
+print(f"  Std: {zp3_stats['Std']:.2f}")
+print(f"  Range: {zp3_stats['Min']:.2f} - {zp3_stats['Max']:.2f}")
 
-# 4. 临床特征关联分析
-print("\n4. 临床特征关联分析...")
+# 4. Clinical feature association analysis
+print("\n4. Clinical feature association analysis...")
 
-# 创建临床特征与ZP3关联的字典
+# Create a dictionary of associations between clinical features and ZP3
 clinical_features = {}
 
-# 4.1 组织学类型
+# 4.1 Histology type
 if 'Histology' in clinical_aligned.columns:
     histology_data = clinical_aligned['Histology'].value_counts()
-    print(f"\n  组织学类型分布:")
+    print(f"\n  Histology type distribution:")
     for hist, count in histology_data.items():
         print(f"    {hist}: {count} ({count/len(clinical_aligned)*100:.1f}%)")
     
-    # 比较不同组织学类型间ZP3表达
+    # Compare ZP3 expression among different histology types
     histology_groups = []
     histology_labels = []
     for hist in histology_data.index:
         samples = clinical_aligned[clinical_aligned['Histology'] == hist].index
-        if len(samples) >= 10:  # 至少10个样本
+        if len(samples) >= 10:  # at least 10 samples
             histology_groups.append(zp3_aligned[samples].values)
             histology_labels.append(hist)
     
     if len(histology_groups) >= 2:
-        # Kruskal-Wallis检验
+        # Kruskal-Wallis test
         stat, p_val = stats.kruskal(*histology_groups)
-        print(f"  组织学类型间ZP3差异 (Kruskal-Wallis): H={stat:.2f}, p={p_val:.4f}")
+        print(f"  ZP3 difference among histology types (Kruskal-Wallis): H={stat:.2f}, p={p_val:.4f}")
         clinical_features['Histology'] = p_val
 
-# 4.2 WHO分级
+# 4.2 WHO grade
 if 'Grade' in clinical_aligned.columns:
     grade_data = clinical_aligned['Grade'].value_counts()
-    print(f"\n  WHO分级分布:")
+    print(f"\n  WHO grade distribution:")
     for grade, count in grade_data.items():
         print(f"    {grade}: {count} ({count/len(clinical_aligned)*100:.1f}%)")
     
-    # 比较不同分级间ZP3表达
+    # Compare ZP3 expression among different grades
     grade_groups = []
     grade_labels = []
     for grade in grade_data.index:
@@ -118,90 +118,90 @@ if 'Grade' in clinical_aligned.columns:
     
     if len(grade_groups) >= 2:
         stat, p_val = stats.kruskal(*grade_groups)
-        print(f"  WHO分级间ZP3差异 (Kruskal-Wallis): H={stat:.2f}, p={p_val:.4f}")
+        print(f"  ZP3 difference among WHO grades (Kruskal-Wallis): H={stat:.2f}, p={p_val:.4f}")
         clinical_features['Grade'] = p_val
 
-# 4.3 IDH突变状态
+# 4.3 IDH mutation status
 if 'IDH_mutation_status' in clinical_aligned.columns:
     idh_data = clinical_aligned['IDH_mutation_status'].value_counts()
-    print(f"\n  IDH突变状态分布:")
+    print(f"\n  IDH mutation status distribution:")
     for status, count in idh_data.items():
         print(f"    {status}: {count} ({count/len(clinical_aligned)*100:.1f}%)")
     
-    # 比较IDH突变型vs野生型
+    # Compare IDH mutant vs wildtype
     idh_wt = clinical_aligned[clinical_aligned['IDH_mutation_status'] == 'Wildtype'].index
     idh_mut = clinical_aligned[clinical_aligned['IDH_mutation_status'] == 'Mutant'].index
     
     if len(idh_wt) >= 5 and len(idh_mut) >= 5:
         stat, p_val = stats.mannwhitneyu(zp3_aligned[idh_wt], zp3_aligned[idh_mut], alternative='two-sided')
-        print(f"  IDH突变型 vs 野生型 ZP3差异 (Mann-Whitney U): U={stat:.2f}, p={p_val:.4f}")
+        print(f"  IDH mutant vs wildtype ZP3 difference (Mann-Whitney U): U={stat:.2f}, p={p_val:.4f}")
         clinical_features['IDH_mutation'] = p_val
 
-# 4.4 1p/19q共缺失状态
+# 4.4 1p/19q codeletion status
 if '1p19q_codeletion_status' in clinical_aligned.columns:
     codeletion_data = clinical_aligned['1p19q_codeletion_status'].value_counts()
-    print(f"\n  1p/19q共缺失状态分布:")
+    print(f"\n  1p/19q codeletion status distribution:")
     for status, count in codeletion_data.items():
         print(f"    {status}: {count} ({count/len(clinical_aligned)*100:.1f}%)")
     
-    # 比较共缺失vs非共缺失
+    # Compare codeleted vs non-codeleted
     codel = clinical_aligned[clinical_aligned['1p19q_codeletion_status'] == 'Codel'].index
     non_codel = clinical_aligned[clinical_aligned['1p19q_codeletion_status'] == 'Non-codel'].index
     
     if len(codel) >= 5 and len(non_codel) >= 5:
         stat, p_val = stats.mannwhitneyu(zp3_aligned[codel], zp3_aligned[non_codel], alternative='two-sided')
-        print(f"  1p/19q共缺失 vs 非共缺失 ZP3差异 (Mann-Whitney U): U={stat:.2f}, p={p_val:.4f}")
+        print(f"  1p/19q codeleted vs non-codeleted ZP3 difference (Mann-Whitney U): U={stat:.2f}, p={p_val:.4f}")
         clinical_features['1p19q_codeletion'] = p_val
 
-# 4.5 MGMT启动子甲基化状态
+# 4.5 MGMT promoter methylation status
 if 'MGMTp_methylation_status' in clinical_aligned.columns:
     mgmt_data = clinical_aligned['MGMTp_methylation_status'].value_counts()
-    print(f"\n  MGMT启动子甲基化状态分布:")
+    print(f"\n  MGMT promoter methylation status distribution:")
     for status, count in mgmt_data.items():
         print(f"    {status}: {count} ({count/len(clinical_aligned)*100:.1f}%)")
     
-    # 比较甲基化 vs 非甲基化
+    # Compare methylated vs unmethylated
     methylated = clinical_aligned[clinical_aligned['MGMTp_methylation_status'] == 'methylated'].index
     unmethylated = clinical_aligned[clinical_aligned['MGMTp_methylation_status'] == 'un-methylated'].index
     
     if len(methylated) >= 5 and len(unmethylated) >= 5:
         stat, p_val = stats.mannwhitneyu(zp3_aligned[methylated], zp3_aligned[unmethylated], alternative='two-sided')
-        print(f"  MGMT甲基化 vs 非甲基化 ZP3差异 (Mann-Whitney U): U={stat:.2f}, p={p_val:.4f}")
+        print(f"  MGMT methylated vs unmethylated ZP3 difference (Mann-Whitney U): U={stat:.2f}, p={p_val:.4f}")
         clinical_features['MGMT_methylation'] = p_val
 
-# 4.6 年龄相关性
+# 4.6 Age correlation
 if 'Age' in clinical_aligned.columns:
-    # 移除缺失值
+    # Remove missing values
     age_mask = ~clinical_aligned['Age'].isna()
     if age_mask.sum() >= 10:
         age_values = clinical_aligned.loc[age_mask, 'Age'].values
         zp3_age = zp3_aligned[age_mask].values
         
-        # Pearson相关
+        # Pearson correlation
         corr, p_val = stats.pearsonr(age_values, zp3_age)
-        print(f"\n  年龄与ZP3相关性 (Pearson): r={corr:.3f}, p={p_val:.4f}")
+        print(f"\n  Age vs ZP3 correlation (Pearson): r={corr:.3f}, p={p_val:.4f}")
         clinical_features['Age'] = p_val
 
-# 4.7 性别差异
+# 4.7 Gender differences
 if 'Gender' in clinical_aligned.columns:
     gender_data = clinical_aligned['Gender'].value_counts()
-    print(f"\n  性别分布:")
+    print(f"\n  Gender distribution:")
     for gender, count in gender_data.items():
         print(f"    {gender}: {count} ({count/len(clinical_aligned)*100:.1f}%)")
     
-    # 比较男性 vs 女性
+    # Compare male vs female
     male = clinical_aligned[clinical_aligned['Gender'] == 'male'].index
     female = clinical_aligned[clinical_aligned['Gender'] == 'female'].index
     
     if len(male) >= 5 and len(female) >= 5:
         stat, p_val = stats.mannwhitneyu(zp3_aligned[male], zp3_aligned[female], alternative='two-sided')
-        print(f"  男性 vs 女性 ZP3差异 (Mann-Whitney U): U={stat:.2f}, p={p_val:.4f}")
+        print(f"  Male vs Female ZP3 difference (Mann-Whitney U): U={stat:.2f}, p={p_val:.4f}")
         clinical_features['Gender'] = p_val
 
-# 5. 生存分析
-print("\n5. 生存分析...")
+# 5. Survival analysis
+print("\n5. Survival analysis...")
 
-# 准备生存数据
+# Prepare survival data
 if 'OS' in clinical_aligned.columns and 'Censor (alive=0; dead=1)' in clinical_aligned.columns:
     survival_data = pd.DataFrame({
         'time': clinical_aligned['OS'].values,
@@ -209,11 +209,11 @@ if 'OS' in clinical_aligned.columns and 'Censor (alive=0; dead=1)' in clinical_a
         'zp3': zp3_aligned.values
     })
     
-    # 移除缺失值
+    # Remove missing values
     survival_data = survival_data.dropna()
-    print(f"  生存分析样本数: {len(survival_data)}")
+    print(f"  Number of samples for survival analysis: {len(survival_data)}")
     
-    # 5.1 ZP3作为连续变量的Cox回归
+    # 5.1 Cox regression with ZP3 as a continuous variable
     try:
         cph = CoxPHFitter()
         cph.fit(survival_data[['time', 'event', 'zp3']], duration_col='time', event_col='event')
@@ -223,51 +223,51 @@ if 'OS' in clinical_aligned.columns and 'Censor (alive=0; dead=1)' in clinical_a
         zp3_ci_lower = cph.confidence_intervals_.loc['zp3', '95% lower-bound']
         zp3_ci_upper = cph.confidence_intervals_.loc['zp3', '95% upper-bound']
         
-        print(f"  ZP3连续变量Cox回归:")
+        print(f"  Cox regression with ZP3 as continuous variable:")
         print(f"    HR = {zp3_hr:.3f} (95% CI: {zp3_ci_lower:.3f}-{zp3_ci_upper:.3f})")
         print(f"    p = {zp3_p:.4f}")
     except Exception as e:
-        print(f"  Cox回归失败: {e}")
+        print(f"  Cox regression failed: {e}")
         zp3_hr, zp3_p = np.nan, np.nan
     
-    # 5.2 ZP3高/低分组生存分析
-    # 按中位数分组
+    # 5.2 Survival analysis of ZP3 high/low groups
+    # Group by median
     median_zp3 = survival_data['zp3'].median()
     high_group = survival_data[survival_data['zp3'] >= median_zp3]
     low_group = survival_data[survival_data['zp3'] < median_zp3]
     
-    print(f"\n  ZP3中位数分组:")
-    print(f"    高表达组: {len(high_group)} 例 (ZP3 >= {median_zp3:.2f})")
-    print(f"    低表达组: {len(low_group)} 例 (ZP3 < {median_zp3:.2f})")
+    print(f"\n  ZP3 median-based grouping:")
+    print(f"    High expression group: {len(high_group)} cases (ZP3 >= {median_zp3:.2f})")
+    print(f"    Low expression group: {len(low_group)} cases (ZP3 < {median_zp3:.2f})")
     
-    # Kaplan-Meier生存分析
+    # Kaplan-Meier survival analysis
     kmf_high = KaplanMeierFitter()
     kmf_low = KaplanMeierFitter()
     
     kmf_high.fit(high_group['time'], high_group['event'], label='ZP3 High')
     kmf_low.fit(low_group['time'], low_group['event'], label='ZP3 Low')
     
-    # Log-rank检验
+    # Log-rank test
     from lifelines.statistics import logrank_test
     result = logrank_test(high_group['time'], low_group['time'], 
                          event_observed_A=high_group['event'], 
                          event_observed_B=low_group['event'])
     
-    print(f"  Log-rank检验: χ²={result.test_statistic:.2f}, p={result.p_value:.4f}")
+    print(f"  Log-rank test: χ²={result.test_statistic:.2f}, p={result.p_value:.4f}")
     
-    # 计算中位生存时间
+    # Calculate median survival time
     median_surv_high = kmf_high.median_survival_time_
     median_surv_low = kmf_low.median_survival_time_
-    print(f"  中位生存时间:")
-    print(f"    ZP3高表达组: {median_surv_high:.1f} 天")
-    print(f"    ZP3低表达组: {median_surv_low:.1f} 天")
+    print(f"  Median survival time:")
+    print(f"    ZP3 high-expression group: {median_surv_high:.1f} days")
+    print(f"    ZP3 low-expression group: {median_surv_low:.1f} days")
     
     clinical_features['OS_survival'] = result.p_value
 
-# 6. 免疫去卷积分析（简化版）
-print("\n6. 免疫去卷积分析...")
+# 6. Immune deconvolution analysis (simplified)
+print("\n6. Immune deconvolution analysis...")
 
-# 定义简化的免疫基因集
+# Define simplified immune gene sets
 immune_gene_sets = {
     'M2_Macrophage': ['CD163', 'MSR1', 'MRC1', 'CD206', 'TGFB1', 'IL10', 'ARG1', 'IDO1', 'CCL2', 'CCL5'],
     'T_cell_exhaustion': ['PDCD1', 'CTLA4', 'LAG3', 'HAVCR2', 'TIGIT', 'LAG3', 'BTLA', 'VSIR', 'IDO1', 'ENTPD1'],
@@ -278,54 +278,54 @@ immune_gene_sets = {
     'Myeloid': ['CD33', 'CD14', 'ITGAM', 'CSF1R', 'MPO', 'ELANE', 'AZU1', 'PRTN3', 'CEACAM8', 'CEACAM6']
 }
 
-# 计算免疫评分
+# Calculate immune scores
 immune_scores = {}
 for set_name, genes in immune_gene_sets.items():
     available_genes = [g for g in genes if g in expr.index]
     if len(available_genes) >= 3:
-        # 计算基因集平均表达
+        # Calculate mean expression of the gene set
         scores = expr.loc[available_genes, common_samples].mean(axis=0)
         immune_scores[set_name] = scores
         
-        # 计算与ZP3的相关性
+        # Calculate correlation with ZP3
         corr, p_val = stats.spearmanr(zp3_aligned, scores[common_samples])
         print(f"  {set_name}: ρ={corr:.3f}, p={p_val:.4f}")
 
-# 7. 多重检验校正
-print("\n7. 多重检验校正...")
+# 7. Multiple testing correction
+print("\n7. Multiple testing correction...")
 
-# 对所有p值进行FDR校正
+# Perform FDR correction on all p-values
 if clinical_features:
     p_values = list(clinical_features.values())
     p_names = list(clinical_features.keys())
     
-    # BH校正
+    # BH correction
     from statsmodels.stats.multitest import multipletests
     reject, fdr_pvalues, _, _ = multipletests(p_values, method='fdr_bh')
     
-    print("  临床特征关联 (FDR校正后):")
+    print("  Clinical feature associations (after FDR correction):")
     for name, p, fdr in zip(p_names, p_values, fdr_pvalues):
         sig = "*" if fdr < 0.05 else ""
         print(f"    {name}: p={p:.4f}, FDR={fdr:.4f} {sig}")
 
-# 8. 可视化
-print("\n8. 生成可视化...")
+# 8. Visualization
+print("\n8. Generating visualizations...")
 
-# 创建图形
+# Create figure
 fig, axes = plt.subplots(2, 3, figsize=(18, 12))
-fig.suptitle('CGGA-693 胶质瘤队列 ZP3 分析', fontsize=16, fontweight='bold')
+fig.suptitle('CGGA-693 Glioma Cohort ZP3 Analysis', fontsize=16, fontweight='bold')
 
-# 8.1 ZP3表达分布
+# 8.1 ZP3 expression distribution
 ax1 = axes[0, 0]
 zp3_aligned.hist(bins=30, alpha=0.7, color='steelblue', edgecolor='black', ax=ax1)
-ax1.axvline(zp3_aligned.median(), color='red', linestyle='--', linewidth=2, label=f'中位数: {zp3_aligned.median():.2f}')
+ax1.axvline(zp3_aligned.median(), color='red', linestyle='--', linewidth=2, label=f'Median: {zp3_aligned.median():.2f}')
 ax1.set_xlabel('ZP3 FPKM')
-ax1.set_ylabel('频率')
-ax1.set_title('ZP3表达分布')
+ax1.set_ylabel('Frequency')
+ax1.set_title('ZP3 Expression Distribution')
 ax1.legend()
 ax1.grid(True, alpha=0.3)
 
-# 8.2 ZP3与WHO分级
+# 8.2 ZP3 and WHO grade
 ax2 = axes[0, 1]
 if 'Grade' in clinical_aligned.columns:
     grade_order = ['WHO II', 'WHO III', 'WHO IV']
@@ -341,10 +341,10 @@ if 'Grade' in clinical_aligned.columns:
         for patch, color in zip(bp['boxes'], colors):
             patch.set_facecolor(color)
         ax2.set_ylabel('ZP3 FPKM')
-        ax2.set_title('ZP3表达 vs WHO分级')
+        ax2.set_title('ZP3 Expression vs WHO Grade')
         ax2.grid(True, alpha=0.3)
 
-# 8.3 ZP3与IDH状态
+# 8.3 ZP3 vs IDH Status
 ax3 = axes[0, 2]
 if 'IDH_mutation_status' in clinical_aligned.columns:
     idh_groups = []
@@ -366,22 +366,22 @@ if 'IDH_mutation_status' in clinical_aligned.columns:
         for patch, color in zip(bp['boxes'], colors):
             patch.set_facecolor(color)
         ax3.set_ylabel('ZP3 FPKM')
-        ax3.set_title('ZP3表达 vs IDH状态')
+        ax3.set_title('ZP3 Expression vs IDH Status')
         ax3.grid(True, alpha=0.3)
 
-# 8.4 Kaplan-Meier生存曲线
+# 8.4 Kaplan-Meier Survival Curve
 ax4 = axes[1, 0]
 if 'OS' in clinical_aligned.columns and 'Censor (alive=0; dead=1)' in clinical_aligned.columns:
     kmf_high.plot_survival_function(ax=ax4, ci_show=True, color='red', linewidth=2)
     kmf_low.plot_survival_function(ax=ax4, ci_show=True, color='blue', linewidth=2)
-    ax4.set_xlabel('时间 (天)')
-    ax4.set_ylabel('生存概率')
-    ax4.set_title(f'Kaplan-Meier生存曲线 (Log-rank p={result.p_value:.4f})')
+    ax4.set_xlabel('Time (days)')
+    ax4.set_ylabel('Survival Probability')
+    ax4.set_title(f'Kaplan-Meier Survival Curve (Log-rank p={result.p_value:.4f})')
     ax4.legend(['ZP3 High', 'ZP3 Low'], loc='best')
     ax4.grid(True, alpha=0.3)
     ax4.set_ylim(0, 1.05)
 
-# 8.5 ZP3与免疫特征相关性
+# 8.5 ZP3 Correlation with Immune Signatures
 ax5 = axes[1, 1]
 if immune_scores:
     immune_names = list(immune_scores.keys())
@@ -393,27 +393,27 @@ if immune_scores:
         correlations.append(corr)
         p_vals.append(p_val)
     
-    # 绘制条形图
+    # Draw bar chart
     colors = ['red' if p < 0.05 else 'gray' for p in p_vals]
     bars = ax5.barh(immune_names, correlations, color=colors, alpha=0.7, edgecolor='black')
     ax5.axvline(x=0, color='black', linestyle='-', linewidth=1)
-    ax5.set_xlabel('Spearman相关系数')
-    ax5.set_title('ZP3与免疫特征相关性')
+    ax5.set_xlabel('Spearman Correlation Coefficient')
+    ax5.set_title('ZP3 Correlation with Immune Signatures')
     ax5.grid(True, alpha=0.3)
     
-    # 添加p值标注
+    # Add p-value annotations
     for i, (bar, p) in enumerate(zip(bars, p_vals)):
         sig = "*" if p < 0.05 else ""
         ax5.text(bar.get_width() + 0.01, bar.get_y() + bar.get_height()/2, 
                 f'ρ={correlations[i]:.2f}{sig}', va='center')
 
-# 8.6 临床特征p值汇总
+# 8.6 Summary of clinical feature p-values
 ax6 = axes[1, 2]
 if clinical_features:
-    # 转换为FDR校正后的p值
+    # Convert to FDR-corrected p-values
     fdr_dict = dict(zip(p_names, fdr_pvalues))
     
-    # 选择显示的特征
+    # Select features to display
     display_features = ['Histology', 'Grade', 'IDH_mutation', '1p19q_codeletion', 
                        'MGMT_methylation', 'Age', 'Gender', 'OS_survival']
     display_features = [f for f in display_features if f in fdr_dict]
@@ -426,27 +426,27 @@ if clinical_features:
                        color=colors, alpha=0.7, edgecolor='black')
         ax6.axvline(x=-np.log10(0.05), color='black', linestyle='--', linewidth=1, label='FDR=0.05')
         ax6.set_xlabel('-log10(FDR)')
-        ax6.set_title('临床特征关联显著性')
+        ax6.set_title('Clinical Feature Association Significance')
         ax6.legend()
         ax6.grid(True, alpha=0.3)
 
 plt.tight_layout()
 plt.savefig(os.path.join(output_dir, 'fig_cgga693_zp3_analysis.png'), dpi=300, bbox_inches='tight')
-print(f"  图形已保存: {os.path.join(output_dir, 'fig_cgga693_zp3_analysis.png')}")
+print(f"  Figure saved: {os.path.join(output_dir, 'fig_cgga693_zp3_analysis.png')}")
 
-# 9. 保存详细结果
-print("\n9. 保存详细结果...")
+# 9. Save detailed results
+print("\n9. Saving detailed results...")
 
-# 保存临床特征关联结果
+# Save clinical feature association results
 clinical_results = pd.DataFrame({
     'Feature': list(clinical_features.keys()),
     'P_value': list(clinical_features.values()),
     'FDR': list(fdr_pvalues)
 })
 clinical_results.to_csv(os.path.join(output_dir, 'cgga693_clinical_associations.csv'), index=False)
-print(f"  临床特征关联结果: {os.path.join(output_dir, 'cgga693_clinical_associations.csv')}")
+print(f"  Clinical feature association results: {os.path.join(output_dir, 'cgga693_clinical_associations.csv')}")
 
-# 保存免疫相关性结果
+# Save immune correlation results
 if immune_scores:
     immune_results = []
     for name in immune_names:
@@ -459,35 +459,35 @@ if immune_scores:
     
     immune_df = pd.DataFrame(immune_results)
     immune_df.to_csv(os.path.join(output_dir, 'cgga693_zp3_immune_correlations.csv'), index=False)
-    print(f"  免疫相关性结果: {os.path.join(output_dir, 'cgga693_zp3_immune_correlations.csv')}")
+    print(f"  Immune correlation results: {os.path.join(output_dir, 'cgga693_zp3_immune_correlations.csv')}")
 
-# 保存ZP3表达数据
+# Save ZP3 expression data
 zp3_df = pd.DataFrame({
     'Sample': zp3_aligned.index,
     'ZP3_FPKM': zp3_aligned.values
 })
 zp3_df.to_csv(os.path.join(output_dir, 'cgga693_zp3_expression.csv'), index=False)
-print(f"  ZP3表达数据: {os.path.join(output_dir, 'cgga693_zp3_expression.csv')}")
+print(f"  ZP3 expression data: {os.path.join(output_dir, 'cgga693_zp3_expression.csv')}")
 
-# 10. 总结
+# 10. Summary
 print("\n" + "="*60)
-print("CGGA-693 胶质瘤队列 ZP3 分析总结")
+print("CGGA-693 glioma cohort ZP3 analysis summary")
 print("="*60)
-print(f"队列信息:")
-print(f"  肿瘤类型: 胶质瘤 (WHO II-IV)")
-print(f"  样本数量: {len(common_samples)} 例")
-print(f"  数据来源: Chinese Glioma Genome Atlas (CGGA)")
+print(f"Cohort information:")
+print(f"  Tumor type: Glioma (WHO II-IV)")
+print(f"  Sample size: {len(common_samples)} cases")
+print(f"  Data source: Chinese Glioma Genome Atlas (CGGA)")
 print()
-print(f"ZP3表达特征:")
-print(f"  中位数: {zp3_stats['Median']:.2f} FPKM")
-print(f"  范围: {zp3_stats['Min']:.2f} - {zp3_stats['Max']:.2f} FPKM")
+print(f"ZP3 expression characteristics:")
+print(f"  Median: {zp3_stats['Median']:.2f} FPKM")
+print(f"  Range: {zp3_stats['Min']:.2f} - {zp3_stats['Max']:.2f} FPKM")
 print()
-print(f"主要发现:")
-print(f"  1. ZP3表达与IDH突变状态显著相关 (p={clinical_features.get('IDH_mutation', np.nan):.4f})")
-print(f"  2. ZP3表达与WHO分级相关 (p={clinical_features.get('Grade', np.nan):.4f})")
-print(f"  3. ZP3高表达与较差的总生存期相关 (HR={zp3_hr:.3f}, p={zp3_p:.4f})")
-print(f"  4. ZP3与免疫抑制性微环境特征正相关")
+print(f"Key findings:")
+print(f"  1. ZP3 expression is significantly associated with IDH mutation status (p={clinical_features.get('IDH_mutation', np.nan):.4f})")
+print(f"  2. ZP3 expression is associated with WHO grade (p={clinical_features.get('Grade', np.nan):.4f})")
+print(f"  3. High ZP3 expression is associated with poorer overall survival (HR={zp3_hr:.3f}, p={zp3_p:.4f})")
+print(f"  4. ZP3 is positively correlated with immunosuppressive microenvironment features")
 print()
-print(f"结论: ZP3在胶质瘤中与免疫抑制性TME强相关，且是独立的不良预后标志物")
+print(f"Conclusion: ZP3 is strongly associated with an immunosuppressive TME in glioma and is an independent adverse prognostic marker")
 print()
 print("="*60)

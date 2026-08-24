@@ -1,24 +1,24 @@
 # -*- coding: utf-8 -*-
 """
-方法1（单细胞反卷积/来源甄别）+ 响应"bulk ZP3 来源 = 肿瘤 vs 髓系混杂"的审稿质疑。
+Method 1 (single-cell deconvolution/source identification) + response to the reviewer's concern that "bulk ZP3 source = tumor vs myeloid contamination".
 
-核心思路（不依赖脆弱的细胞类型参考谱反卷积，改用两层针对性检验，直击混杂质疑）：
+Core idea (not relying on fragile cell-type reference profile deconvolution, instead using two layers of targeted tests to directly address the confounding concern):
 
-  [检验 A] 单细胞层面 ZP3↔TREM2 共富集（本地 h5ad，零网络）
-     - 直接检验：ZP3+ 细胞是否富集 TREM2+（全细胞 / 髓系内 / MG-TAM-DC 亚群内）
-     - 若 ZP3+ 在髓系内几乎全部共表达 TREM2，则"bulk ZP3↔TREM2 相关"不是
-       肿瘤细胞混杂所致，而是同一群 TREM2+ 髓系细胞同时贡献 ZP3 与 TREM2。
-     - 用 Fisher 精确检验 + 富集强度（OR）+ 单变量逻辑回归（logistic OR per unit ZP3）
+  [Test A] Single-cell level ZP3↔TREM2 co-enrichment (local h5ad, zero network)
+     - Direct test: whether ZP3+ cells are enriched for TREM2+ (all cells / within myeloid / within MG-TAM-DC subsets)
+     - If ZP3+ cells within myeloid almost all co-express TREM2, then the "bulk ZP3↔TREM2 correlation" is not
+       caused by tumor cell contamination, but rather the same population of TREM2+ myeloid cells simultaneously contributes ZP3 and TREM2.
+     - Use Fisher's exact test + enrichment strength (OR) + univariate logistic regression (logistic OR per unit ZP3)
 
-  [检验 B] bulk 层面：ZP3 与 TREM2 的关联是否独立于"总髓系负荷"
-     - 用泛髓系 marker（CD68/CD14/LYZ/CSF1R/ITGAM）构建髓系指数
-     - Pearson: ZP3 vs 髓系指数
-     - 偏相关: 控制髓系指数后 ZP3 vs TREM2（用残差相关实现）
-     - 若控制髓系负荷后关联大幅衰减 -> 混杂（bulk 层面 ZP3↔TREM2 表观相关来自髓系总量）
-     - 若衰减但仍显著 -> 存在独立于总髓系量的特异关联
-     - 两种结果都是"可发表"的诚实结论，但解读不同。
+  [Test B] bulk level: whether the ZP3-TREM2 association is independent of “total myeloid burden”
+     - Use pan-myeloid markers (CD68/CD14/LYZ/CSF1R/ITGAM) to construct a myeloid index
+     - Pearson: ZP3 vs myeloid index
+     - Partial correlation: ZP3 vs TREM2 after controlling for the myeloid index (implemented via residual correlation)
+     - If the association attenuates substantially after controlling for myeloid burden -> confounding (the apparent bulk-level ZP3↔TREM2 correlation comes from total myeloid abundance)
+     - If attenuated but still significant -> there is a specific association independent of total myeloid abundance
+     - Both results are honest \"publishable\" conclusions, but the interpretation differs.
 
-  2026-08-10  Craft 模式执行
+  2026-08-10  Craft mode execution
 """
 import numpy as np
 import pandas as pd
@@ -46,7 +46,7 @@ def log(msg):
     OUT.append(str(msg))
 
 # ---------------------------------------------------------------
-# [检验 A] 单细胞层面 ZP3 ↔ TREM2 共富集
+# [Test A] Single-cell-level ZP3 ↔ TREM2 co-enrichment
 # ---------------------------------------------------------------
 def main_A():
     h5ad_path = os.path.join(ROOT, "output", "h1_pilot", "h1_adata_subtyped.h5ad")
@@ -63,9 +63,9 @@ def main_A():
     zp3_pos = zp3 > 0
     trem2_pos = trem2 > 0
     log("=" * 70)
-    log("[检验 A] 单细胞层面 ZP3+ 细胞是否富集 TREM2+  (n_cells=%d)" % len(zp3))
-    log("  var 空间 = %d HVG（非全基因组）；ZP3/TREM2 均因高变异被保留" % adata.n_vars)
-    log("  背景: ZP3+ %d 细胞 (%.2f%%), TREM2+ %d 细胞 (%.2f%%)"
+    log("[Test A] Single-cell level: whether ZP3+ cells are enriched for TREM2+  (n_cells=%d)" % len(zp3))
+    log("  var space = %d HVG (non-whole-genome); ZP3/TREM2 both retained due to high variability" % adata.n_vars)
+    log("  Background: ZP3+ %d cells (%.2f%%), TREM2+ %d cells (%.2f%%)"
         % (zp3_pos.sum(), 100*zp3_pos.mean(), trem2_pos.sum(), 100*trem2_pos.mean()))
 
     def fisher_or_table(a, b, label):
@@ -77,17 +77,17 @@ def main_A():
         frac_bg_trem2 = (aa+ba)/len(a) if len(a)>0 else float('nan')
         log("  [%s]  ZP3+&TREM2+=%d, ZP3+&TREM2-=%d, ZP3-&TREM2+=%d, ZP3-&TREM2-=%d"
             % (label, aa, ab, ba, bb))
-        log("      ZP3+ 中 TREM2+ 比例=%.1f%% | 整体背景 TREM2+ 比例=%.1f%%" % (100*frac_zp3_trem2, 100*frac_bg_trem2))
+        log("      TREM2+ proportion in ZP3+=%.1f%% | overall background TREM2+ proportion=%.1f%%" % (100*frac_zp3_trem2, 100*frac_bg_trem2))
         log("      Fisher OR=%.2f, p=%.3g" % (OR, p))
         return OR, p
 
-    # A0 全细胞
-    fisher_or_table(zp3_pos, trem2_pos, "全细胞")
-    # A1 髓系内
+    # A0 all cells
+    fisher_or_table(zp3_pos, trem2_pos, "all cells")
+    # A1 within myeloid
     myeloid = obs['myeloid'].values.astype(bool)
     if myeloid.sum() > 0:
-        m = fisher_or_table(zp3_pos[myeloid], trem2_pos[myeloid], "髓系内 myel=True")
-    # A2 按髓系亚群分层
+        m = fisher_or_table(zp3_pos[myeloid], trem2_pos[myeloid], "within myeloid myel=True")
+    # A2 stratified by myeloid subpopulation
     sub = obs['myeloid_subclass'].values
     sub = np.array([str(x) for x in sub])
     for s in ['MG', 'TAM', 'DC']:
@@ -98,9 +98,9 @@ def main_A():
             ba=int((~fp3&ftrem).sum()); bb=int((~fp3&~ftrem).sum())
             if (aa+ab)>0 and (ba+bb)>0:
                 OR,p = stats.fisher_exact([[aa,ab],[ba,bb]])
-                log("  [亚群:%s n=%d]  ZP3+&TREM2+=%d/%d  | 亚群内 TREM2+ 背景=%.1f%% | Fisher OR=%.2f p=%.3g"
+                log("  [subpopulation:%s n=%d]  ZP3+&TREM2+=%d/%d  | within-subpopulation TREM2+ background=%.1f%% | Fisher OR=%.2f p=%.3g"
                     % (s, sel.sum(), aa, aa+ab, 100*ftrem.mean(), OR, p))
-    # A3 单变量逻辑回归（ZP3 表达量 -> TREM2+，全细胞）给出每单位 ZP3 的 OR
+    # A3 univariate logistic regression (ZP3 expression -> TREM2+, all cells) gives OR per unit ZP3
     try:
         from scipy.optimize import minimize
         y = trem2_pos.astype(float); x = zp3
@@ -112,33 +112,33 @@ def main_A():
             return -(y*np.log(p) + (1-y)*np.log(1-p)).sum()
         res = minimize(negll, np.zeros(2), method='BFGS')
         b0, b1 = res.x
-        log("  [逻辑回归·未校正] logit(TREM2+)=%.3f+%.3f*ZP3 -> ZP3 每 +1(log1p) 的 OR=%.2f"
+        log("  [logistic regression, unadjusted] logit(TREM2+)=%.3f+%.3f*ZP3 -> OR per +1(log1p) of ZP3=%.2f"
             % (b0, b1, np.exp(b1)))
     except Exception as e:
-        log("  [逻辑回归] 计算失败: %s" % e)
+        log("  [logistic regression] calculation failed: %s" % e)
 
 # ---------------------------------------------------------------
-# [方法1-B 支架] bulk 髓系指数偏相关 —— 需要额外网络拉取髓系 marker
-#   单独在 fetch_myeloid_markers.py 中拉取 CD68/CD14/LYZ/CSF1R/ITGAM 到 expr
-#   此处定义函数供主流程调用
+# [Method 1-B scaffold] bulk myeloid index partial correlation -- requires additional network fetch of myeloid markers
+#   separately fetch CD68/CD14/LYZ/CSF1R/ITGAM into expr in fetch_myeloid_markers.py
+#    Define functions here for the main process to call  <-- TRANSLATE
 # ---------------------------------------------------------------
 def main_B(myeloid_idx_df):
-    """myeloid_idx_df: index=patient, 列=['myeloid_idx']；需含 ZP3/TREM2 同 index"""
+    """myeloid_idx_df: index=patient, columns=['myeloid_idx']; must include ZP3/TREM2 with same index"""
     log("=" * 70)
-    log("[检验 B] bulk 层面 ZP3↔TREM2 是否独立于总髓系负荷")
+    log("[Check B] whether ZP3↔TREM2 at bulk level is independent of total myeloid burden")
     df = myeloid_idx_df.dropna()
     if len(df) < 30:
-        log("  样本太少(%d)，跳过" % len(df)); return
-    # 1) ZP3 vs 髓系指数
+        log("  too few samples (%d), skip" % len(df)); return
+    # 1) ZP3 vs myeloid index
     r1, p1 = stats.pearsonr(df['ZP3'], df['myeloid_idx'])
-    log("  1) ZP3 vs 髓系指数: r=%.3f p=%.3g" % (r1, p1))
-    # 2) TREM2 vs 髓系指数
+    log("  1) ZP3 vs myeloid index: r=%.3f p=%.3g" % (r1, p1))
+    # 2) TREM2 vs myeloid index
     r2, p2 = stats.pearsonr(df['TREM2'], df['myeloid_idx'])
-    log("  2) TREM2 vs 髓系指数: r=%.3f p=%.3g" % (r2, p2))
-    # 3) ZP3 vs TREM2 (未校正)
+    log("  2) TREM2 vs myeloid index: r=%.3f p=%.3g" % (r2, p2))
+    # 3) ZP3 vs TREM2 (uncorrected)
     r0, p0 = stats.pearsonr(df['ZP3'], df['TREM2'])
-    log("  3) ZP3 vs TREM2 (粗相关): r=%.3f p=%.3g" % (r0, p0))
-    # 4) 偏相关：控制髓系指数
+    log("  3) ZP3 vs TREM2 (crude correlation): r=%.3f p=%.3g" % (r0, p0))
+    # 4) Partial correlation: controlling for myeloid index
     def partial_corr(x, y, cov):
         def reg(a, b):
             m = np.column_stack([np.ones_like(b), b])
@@ -149,15 +149,15 @@ def main_B(myeloid_idx_df):
         r, p = stats.pearsonr(rx, ry)
         return r, p
     rp, pp = partial_corr(df['ZP3'].values, df['TREM2'].values, df['myeloid_idx'].values)
-    log("  4) ZP3 vs TREM2 (偏相关，控制髓系指数): r_partial=%.3f p=%.3g" % (rp, pp))
+    log("  4) ZP3 vs TREM2 (partial correlation, controlling for myeloid index): r_partial=%.3f p=%.3g" % (rp, pp))
     if pp < 0.05:
-        log("     解读:控制髓系负荷后仍显著 -> ZP3↔TREM2 存在独立于总髓系量的特异关联")
+        log("      Interpretation: after controlling for myeloid burden, still significant -> ZP3↔TREM2 has a specific association independent of total myeloid abundance")
     else:
-        log("     解读:控制髓系负荷后不显著 -> bulk ZP3↔TREM2 表观相关主要由总髓系负荷驱动(混杂)")
+        log("      Interpretation: after controlling for myeloid burden, not significant -> the apparent bulk ZP3↔TREM2 correlation is mainly driven by total myeloid burden (confounding)")
     r_pct = 100*(1 - pp/ (p0+1e-300))
-    log("     (粗p=%.3g -> 偏p=%.3g, 若不显著则说明部分由髓系总量解释)" % (p0, pp))
+    log("     (crude p=%.3g -> partial p=%.3g, if not significant it indicates that part is explained by total myeloid abundance)" % (p0, pp))
 
 if __name__ == "__main__":
     main_A()
     print()
-    main_B(None)  # None 时静默（真实数据由主脚本传入）
+    main_B(None)  # silent when None (real data is passed in by the main script)

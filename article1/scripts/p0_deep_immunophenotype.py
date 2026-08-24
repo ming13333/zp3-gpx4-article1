@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
 """
-P0-A1/A2/A3: 深度免疫表型分析 — GSE78220 + GSE121810
-不依赖 xCell/MCPcounter/ESTIMATE 包，手工实现全部评分
+P0-A1/A2/A3: Deep immunophenotype analysis — GSE78220 + GSE121810
+No dependency on xCell/MCPcounter/ESTIMATE packages; manually implements all scores.
 
-产出:
-  1. MCP-counter 风格细胞类型评分 (8种免疫 + 基质)
-  2. ESTIMATE 风格评分 (immune/stromal/estimate)
-  3. T cell 耗竭/CYT/IFN-γ 评分
-  4. 完整免疫抑制因子面板
-  5. ZP3 与所有评分的 Pearson/Spearman 相关矩阵
-  6. 热图可视化
+Outputs:
+  1. MCP-counter style cell type scores (8 immune + stromal)
+  2. ESTIMATE style scores (immune/stromal/estimate)
+  3. T cell exhaustion/CYT/IFN-γ scores
+  4. Complete immunosuppressive factor panel
+  5. Pearson/Spearman correlation matrix of ZP3 with all scores
+  6. Heatmap visualization
 """
 import os, warnings
 warnings.filterwarnings('ignore')
@@ -27,10 +27,10 @@ OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 np.random.seed(42)
 
 # ============================================================
-# 1. 基因集定义 (手工实现, 不依赖外部包)
+# 1. Gene set definitions (manual implementation, no external packages)
 # ============================================================
 
-# --- MCP-counter 风格 (Becht 2016) ---
+# --- MCP-counter style (Becht 2016) ---
 MCP_GENESETS = {
     'T_cells': ['CD2','CD3D','CD3E','CD3G','CD28','ICOS','LCK','ZAP70','TRAC','TRBC2'],
     'CD8_T': ['CD8A','CD8B','GZMA','GZMB','GZMK','PRF1','IFNG','NKG7','GNLY'],
@@ -44,7 +44,7 @@ MCP_GENESETS = {
     'Fibroblasts': ['COL1A1','COL1A2','COL3A1','FAP','DCN','LUM','ACTA2','PDGFRA','PDGFRB'],
 }
 
-# --- ESTIMATE 风格 (Yoshihara 2013) ---
+# --- ESTIMATE style (Yoshihara 2013) ---
 ESTIMATE_STROMAL = ['DCN','COL1A1','COL1A2','COL3A1','COL5A1','COL6A1','FAP','LUM',
                     'POSTN','FBLN1','FBLN2','FBLN5','BGN','OGN','ASPN','COL11A1',
                     'COL11A2','COL5A2','COL5A3','ADAM12','SULF1','SFRP1','SFRP2',
@@ -60,7 +60,7 @@ ESTIMATE_IMMUNE = ['BIRC3','C1QA','C1QB','C1QC','CCL2','CCL3','CCL4','CCL5','CCL
                    'IRF1','ITGAM','ITGAX','LCK','LY86','LYZ','NKG7','PDCD1','PTPRC',
                    'SLAMF7','SPN','TLR8','TNF','TXK']
 
-# --- T cell 功能/耗竭 ---
+# --- T cell function/exhaustion ---
 EXHAUSTION_GENES = ['PDCD1','CTLA4','HAVCR2','LAG3','TIGIT','LAG3','TIGIT',
                      'TOX','TOX2','ENTPD1','LAYN','MAF','TGFB1','LAG3']
 EXHAUSTION_GENES = list(dict.fromkeys(EXHAUSTION_GENES))  # deduplicate
@@ -70,9 +70,9 @@ CYT_GENES = ['GZMA','PRF1']
 IFNG_SIGNATURE = ['IFNG','STAT1','CXCL9','CXCL10','CXCL11','IDO1','GBP1','GBP2',
                   'IRF1','HLA-DRA','HLA-DRB1','PSMB8','PSMB9','TAP1','TAP2']
 
-# --- 完整免疫抑制因子 ---
+# --- Complete immunosuppressive factors ---
 IMMUNOSUPPRESSIVE_PANEL = {
-    # 检查点
+    # Checkpoints
     'PD-L1': ['CD274','PDCD1LG2'],
     'CTLA4': ['CTLA4'],
     'TIM3': ['HAVCR2'],
@@ -81,18 +81,18 @@ IMMUNOSUPPRESSIVE_PANEL = {
     'VISTA': ['VSIR'],
     'B7-H3': ['CD276'],
     'BTLA': ['BTLA'],
-    # 抑制性细胞因子
+    # Inhibitory cytokines
     'TGFb': ['TGFB1','TGFB2','TGFB3'],
     'IL10': ['IL10','IL10RA','IL10RB'],
     'VEGF': ['VEGFA','VEGFB','VEGFC','KDR','FLT1'],
-    # 抑制性酶
+    # Inhibitory enzymes
     'IDO1': ['IDO1','IDO2'],
     'ARG1': ['ARG1','ARG2'],
-    # 趋化因子 (招募免疫抑制细胞)
+    # Chemokines (recruiting immunosuppressive cells)
     'CCL2': ['CCL2'],
     'CCL5': ['CCL5'],
     'CXCL8': ['CXCL8','CXCL1'],
-    # M2 标志物
+    # M2 markers
     'CD163': ['CD163'],
     'MRC1': ['MRC1'],
     'MSR1': ['MSR1'],
@@ -100,23 +100,23 @@ IMMUNOSUPPRESSIVE_PANEL = {
     'FOLR2': ['FOLR2'],
     'TREM2': ['TREM2'],
     'MERTK': ['MERTK'],
-    # 代谢抑制
+    # Metabolic suppression
     'CD39': ['ENTPD1'],
     'CD73': ['NT5E'],
     'B2M': ['B2M'],
 }
 
 def score_geneset(expr_df, gene_list, method='zscore'):
-    """对表达矩阵计算基因集评分 (仅用存在的基因)。
+    """Calculate gene set scores for the expression matrix (using only existing genes).
 
-    说明（回应实证审查「免疫去卷积为基因集均值简化版」）：
-    本实现是【基因集 signature score】，并非绝对细胞比例反卷积
-    （CIBERSORT/MCP-counter 本身也是基于参考谱的估计，非金标准）。
-    两种评分模式：
-      - 'zscore'（默认，推荐）：每基因先跨样本 z 标准化，再取基因集均值。
-        优点：消除基因间量纲/基线差异，使不同基因集、不同队列间分数可比；
-        高值代表该样本的基因集相对高表达（富集），低值代表相对低表达。
-      - 'mean'：原始基因集表达均值（未标准化，仅供对照）。
+    Note (in response to the empirical review that "immune deconvolution is a simplified version of gene set means"):
+    This implementation is a [gene set signature score], not an absolute cell proportion deconvolution
+    (CIBERSORT/MCP-counter itself is also an estimate based on reference profiles, not a gold standard).
+    Two scoring modes:
+      - 'zscore' (default, recommended): each gene is first z-standardized across samples, then the gene set mean is taken.
+        Advantages: removes inter-gene scale/baseline differences, making scores comparable across gene sets and cohorts;
+        High values indicate that the sample's gene set is relatively highly expressed (enriched), low values indicate relatively low expression.
+      - 'mean': raw gene set expression mean (not standardized, for reference only).
     """
     avail = [g for g in gene_list if g in expr_df.index]
     if len(avail) == 0:
@@ -133,27 +133,27 @@ def score_geneset(expr_df, gene_list, method='zscore'):
     return sub.mean(axis=0)  # 'mean'
 
 def analyze_cohort(expr_path, clinical_path, cohort_name, expr_kwargs=None):
-    """对单个队列做完整免疫表型分析"""
+    """Perform complete immunophenotype analysis for a single cohort"""
     print(f'\n{"="*70}')
     print(f'  {cohort_name}')
     print(f'{"="*70}')
 
-    # 读表达矩阵
+    # Read expression matrix
     if expr_kwargs is None:
         expr_kwargs = {}
     if expr_path.endswith('.xlsx'):
         expr = pd.read_excel(expr_path, index_col=0, **expr_kwargs)
     else:
         expr = pd.read_csv(expr_path, index_col=0, **expr_kwargs)
-    # 转为 float
+    # Convert to float
     expr = expr.apply(pd.to_numeric, errors='coerce').fillna(0)
-    print(f'表达矩阵: {expr.shape[0]} 基因 x {expr.shape[1]} 样本')
+    print(f'Expression matrix: {expr.shape[0]} genes x {expr.shape[1]} samples')
 
-    # 读临床数据
+    # Read clinical data
     clinical = pd.read_csv(clinical_path)
 
-    # ---- A1: MCP-counter 风格 ----
-    print('\n--- A1: MCP-counter 风格细胞评分 ---')
+    # ---- A1: MCP-counter style ----
+    print('\n--- A1: MCP-counter style cell scores ---')
     mcp_scores = {}
     for name, genes in MCP_GENESETS.items():
         score = score_geneset(expr, genes)
@@ -162,8 +162,8 @@ def analyze_cohort(expr_path, clinical_path, cohort_name, expr_kwargs=None):
         print(f'  {name:22s}: avail={len(avail):2d}/{len(genes):2d}, mean={score.mean():.3f}, std={score.std():.3f}')
     mcp_df = pd.DataFrame(mcp_scores)
 
-    # ---- A1b: ESTIMATE 风格 ----
-    print('\n--- A1b: ESTIMATE 风格评分 ---')
+    # ---- A1b: ESTIMATE style ----
+    print('\n--- A1b: ESTIMATE style scores ---')
     est_scores = {}
     for name, genes in [('StromalScore', ESTIMATE_STROMAL), ('ImmuneScore', ESTIMATE_IMMUNE)]:
         score = score_geneset(expr, genes)
@@ -173,8 +173,8 @@ def analyze_cohort(expr_path, clinical_path, cohort_name, expr_kwargs=None):
     est_scores['ESTIMATEScore'] = est_scores['StromalScore'] + est_scores['ImmuneScore']
     est_df = pd.DataFrame(est_scores)
 
-    # ---- A2: T cell 功能/耗竭评分 ----
-    print('\n--- A2: T cell 功能/耗竭评分 ---')
+    # ---- A2: T cell function/exhaustion score ----
+    print('\n--- A2: T cell function/exhaustion score ---')
     func_scores = {}
     for name, genes in [('Exhaustion', EXHAUSTION_GENES), ('CYT', CYT_GENES), ('IFN_gamma', IFNG_SIGNATURE)]:
         score = score_geneset(expr, genes)
@@ -183,27 +183,27 @@ def analyze_cohort(expr_path, clinical_path, cohort_name, expr_kwargs=None):
         print(f'  {name:16s}: avail={len(avail):2d}/{len(genes):2d}, mean={score.mean():.3f}, std={score.std():.3f}')
     func_df = pd.DataFrame(func_scores)
 
-    # ---- A3: 免疫抑制因子面板 ----
-    print('\n--- A3: 免疫抑制因子面板 ---')
+    # ---- A3: Immunosuppressive factor panel ----
+    print('\n--- A3: Immunosuppressive factor panel ---')
     immuno_scores = {}
     for name, genes in IMMUNOSUPPRESSIVE_PANEL.items():
         score = score_geneset(expr, genes)
         immuno_scores[name] = score
         avail = [g for g in genes if g in expr.index]
     immuno_df = pd.DataFrame(immuno_scores)
-    # 打印摘要
+    # Print summary
     for name in immuno_df.columns:
         v = immuno_df[name]
         print(f'  {name:12s}: mean={v.mean():.3f}, std={v.std():.3f}')
 
-    # ---- ZP3 表达 ----
+    # ---- ZP3 expression ----
     zp3 = score_geneset(expr, ['ZP3'])
     trem2 = score_geneset(expr, ['TREM2'])
     print(f'\nZP3: mean={zp3.mean():.3f}, std={zp3.std():.3f}')
     print(f'TREM2: mean={trem2.mean():.3f}, std={trem2.std():.3f}')
 
-    # ---- 相关矩阵 ----
-    print('\n--- ZP3 相关矩阵 ---')
+    # ---- Correlation matrix ----
+    print('\n--- ZP3 correlation matrix ---')
     all_scores = pd.concat([mcp_df, est_df, func_df, immuno_df], axis=1)
     all_scores['ZP3'] = zp3
     all_scores['TREM2'] = trem2
@@ -240,8 +240,8 @@ def analyze_cohort(expr_path, clinical_path, cohort_name, expr_kwargs=None):
         'Spearman_p': spearman_p,
     })
 
-    # 打印显著相关
-    print('\n  ZP3 vs 各特征 (Pearson, |r|>0.3 或 p<0.05):')
+    # Print significant correlations
+    print('\n  ZP3 vs each feature (Pearson, |r|>0.3 or p<0.05):')
     for _, row in corr_df.iterrows():
         f = row['Feature']
         if f == 'ZP3': continue
@@ -259,10 +259,10 @@ def analyze_cohort(expr_path, clinical_path, cohort_name, expr_kwargs=None):
     }
 
 # ============================================================
-# 2. 运行分析
+# 2. Run analysis
 # ============================================================
 
-# GSE78220 (黑色素瘤, n=28)
+# GSE78220 (melanoma, n=28)
 res78 = analyze_cohort(
     expr_path=f'{OUT}/GSE78220_PatientFPKM.xlsx',
     clinical_path=f'{OUT}/gse78220_annotation.csv',
@@ -270,7 +270,7 @@ res78 = analyze_cohort(
     expr_kwargs={'sheet_name': 0}
 )
 
-# GSE121810 (胶质瘤, n=29)
+# GSE121810 (glioma, n=29)
 res12 = analyze_cohort(
     expr_path=f'{OUT}/gse121810_expression.csv',
     clinical_path=f'{OUT}/gse121810_sample_info.csv',
@@ -278,10 +278,10 @@ res12 = analyze_cohort(
 )
 
 # ============================================================
-# 3. 跨队列合并相关矩阵 + 保存
+# 3. Merge correlation matrices across cohorts + save
 # ============================================================
 print('\n' + '='*70)
-print('  跨队列 ZP3 相关对比')
+print('  Cross-cohort ZP3 correlation comparison')
 print('='*70)
 
 merged = res78['corr_df'][['Feature','Pearson_r','Pearson_p']].merge(
@@ -289,29 +289,29 @@ merged = res78['corr_df'][['Feature','Pearson_r','Pearson_p']].merge(
     on='Feature', suffixes=('_GSE78220','_GSE121810')
 )
 
-# 过滤有意义的行 (|r|>0.2 在任一队列)
+# Filter meaningful rows (|r|>0.2 in either cohort)
 mask = (merged['Pearson_r_GSE78220'].abs() > 0.2) | (merged['Pearson_r_GSE121810'].abs() > 0.2)
 merged_filtered = merged[mask].sort_values('Pearson_r_GSE78220', ascending=False)
 print(merged_filtered.to_string(index=False, float_format='%.3f'))
 
 merged.to_csv(f'{OUT}/p0_zp3_correlation_all_features.csv', index=False)
 merged_filtered.to_csv(f'{OUT}/p0_zp3_correlation_filtered.csv', index=False)
-print(f'\n保存: p0_zp3_correlation_all_features.csv')
-print(f'保存: p0_zp3_correlation_filtered.csv')
+print(f'\nSaved: p0_zp3_correlation_all_features.csv')
+print(f'\nSaved: p0_zp3_correlation_filtered.csv')
 
 # ============================================================
-# 4. 可视化: 双队列相关热图
+# 4. Visualization: dual-cohort correlation heatmap
 # ============================================================
-print('\n--- 生成可视化 ---')
+print('\n--- Generate visualization ---')
 
-# 筛选有意义特征
+# Filter meaningful features
 keep = merged_filtered['Feature'].tolist()
 if 'ZP3' not in keep: keep.append('ZP3')
 if 'TREM2' not in keep: keep.append('TREM2')
 
-# 构建热图矩阵
+# Construct heatmap matrix
 filtered_idx = merged_filtered.set_index('Feature')
-# 确保 keep 中的 feature 都在 index 中
+# Ensure all features in keep are in the index
 keep_valid = [f for f in keep if f in filtered_idx.index]
 heat_data = pd.DataFrame({
     'GSE78220\n(Melanoma)': filtered_idx.loc[keep_valid, 'Pearson_r_GSE78220'],
@@ -320,7 +320,7 @@ heat_data = pd.DataFrame({
 
 fig, axes = plt.subplots(1, 2, figsize=(16, 10), gridspec_kw={'width_ratios': [1, 1.1]})
 
-# 左: 热图
+# Left: heatmap
 ax = axes[0]
 cmap = plt.cm.RdBu_r
 norm = mcolors.TwoSlopeNorm(vmin=-0.8, vcenter=0, vmax=0.8)
@@ -332,7 +332,7 @@ ax.set_yticklabels(heat_data.index, fontsize=10)
 ax.set_title('ZP3 vs Immune Features\nPearson r (cross-cohort)', fontsize=13, fontweight='500')
 plt.colorbar(im, ax=ax, shrink=0.8, label='Pearson r')
 
-# 在格子内标注数值
+# Annotate values inside cells
 for i in range(len(heat_data.index)):
     for j in range(len(heat_data.columns)):
         val = heat_data.values[i, j]
@@ -340,7 +340,7 @@ for i in range(len(heat_data.index)):
             color = 'white' if abs(val) > 0.5 else 'black'
             ax.text(j, i, f'{val:.2f}', ha='center', va='center', fontsize=8, color=color)
 
-# 右: 散点图 (GSE78220 r vs GSE121810 r)
+# Right: scatter plot (GSE78220 r vs GSE121810 r)
 ax2 = axes[1]
 r78 = merged_filtered['Pearson_r_GSE78220'].values
 r12 = merged_filtered['Pearson_r_GSE121810'].values
@@ -356,13 +356,13 @@ ax2.set_title('Cross-cohort Reproducibility\nof ZP3-Immune Correlations', fontsi
 ax2.set_xlim(-0.9, 0.9)
 ax2.set_ylim(-0.9, 0.9)
 
-    # 标注 r > 0.3 的点
+    # Annotate points with r > 0.3
 for i, (x, y, lab) in enumerate(zip(r78, r12, labels)):
     if np.isfinite(x) and np.isfinite(y) and (abs(x) > 0.35 or abs(y) > 0.35):
         ax2.annotate(lab, (x, y), fontsize=7.5, ha='center', va='bottom',
                      xytext=(0, 4), textcoords='offset points')
 
-# 计算跨队列相关
+# Calculate cross-cohort correlation
 valid = np.isfinite(r78) & np.isfinite(r12)
 cross_r, cross_p = stats.pearsonr(r78[valid], r12[valid])
 ax2.text(0.05, 0.95, f'Cross-cohort r={cross_r:.3f}\np={cross_p:.4f}',
@@ -371,14 +371,14 @@ ax2.text(0.05, 0.95, f'Cross-cohort r={cross_r:.3f}\np={cross_p:.4f}',
 
 plt.tight_layout()
 plt.savefig(f'{OUT}/fig_p0_zp3_immunophenotype_heatmap.png', dpi=200, bbox_inches='tight')
-print(f'保存: fig_p0_zp3_immunophenotype_heatmap.png')
+print(f'Saved: fig_p0_zp3_immunophenotype_heatmap.png')
 
 # ============================================================
-# 5. 保存每个队列的完整评分表
+# 5. Save the complete score table for each cohort
 # ============================================================
 for name, res in [('gse78220', res78), ('gse121810', res12)]:
     res['all_scores'].to_csv(f'{OUT}/p0_{name}_all_scores.csv')
     res['corr_df'].to_csv(f'{OUT}/p0_{name}_zp3_correlation_full.csv', index=False)
-    print(f'保存: p0_{name}_all_scores.csv, p0_{name}_zp3_correlation_full.csv')
+    print(f'Saved: p0_{name}_all_scores.csv, p0_{name}_zp3_correlation_full.csv')
 
-print('\n=== P0 完成 ===')
+print('\n=== P0 completed ===')

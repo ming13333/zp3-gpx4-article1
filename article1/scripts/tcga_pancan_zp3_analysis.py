@@ -1,23 +1,23 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-TCGA 泛癌分析 ZP3 与免疫特征的组织特异性（真实数据版）
+TCGA pan-cancer analysis of tissue specificity of ZP3 and immune features (real data version)
 =================================================================
-数据：UCSC Xena「TCGA TARGET GTEx」RSEM gene TPM
-      (TcgaTargetGtex_rsem_gene_tpm.gz，行=Ensembl 基因 ID，列=样本)
-      —— 该文件由 segmented_resume_download 真实下载，非模拟数据。
+Data: UCSC Xena 'TCGA TARGET GTEx' RSEM gene TPM
+      (TcgaTargetGtex_rsem_gene_tpm.gz, rows=Ensembl gene IDs, columns=samples)
+      -- This file was actually downloaded by segmented_resume_download, not simulated data.
 
-流程：
-  1. 解析 ZP3 与各免疫标志基因 symbol -> Ensembl ID（Ensembl REST 获取并缓存到
-     ensg_map.json，离线可复现；失败则用内置回退表）。
-  2. 流式读取 gz 文件，仅保留目标基因行（避免把 1.3GB 全量读入内存）。
-  3. 筛选 TCGA 肿瘤样本（sample id 形如 TCGA-XXXX-####-01），按癌种分组。
-  4. 对每个癌种、每个免疫基因集，计算 ZP3 表达与「基因集均值评分」的
-     Spearman 秩相关（表达量为 log2(TPM) 右侧偏态，用 Spearman 而非 Pearson）。
-  5. 生成泛癌热图 + 各癌种关联强度柱状图，并保存明细/汇总 CSV。
+Workflow:
+  1. Parse ZP3 and various immune marker gene symbols -> Ensembl IDs (obtained via Ensembl REST and cached to
+     ensg_map.json, reproducible offline; fallback to built-in mapping table on failure).
+  2. Stream-read the gz file and keep only target gene rows (avoid loading the full 1.3GB into memory).
+  3. Filter TCGA tumor samples (sample ID pattern TCGA-XXXX-####-01) and group by cancer type.
+  4. For each cancer type and each immune gene set, compute the
+     Spearman rank correlation between ZP3 expression and the gene-set mean score (expression is log2(TPM) right-skewed, so use Spearman rather than Pearson).
+  5. Generate a pan-cancer heatmap + association strength bar charts for each cancer type, and save detailed/summary CSVs.
 
-注：表达值为 log2(TPM)；"-9.9658" 为 Xena 对 0 的下溢底值，保留为低表达秩
-    （秩相关对单调变换稳健，不参与绝对量解释）。
+Note: expression values are log2(TPM); "-9.9658" is the Xena underflow floor for 0, retained as low expression rank
+    (Rank correlation is robust to monotonic transformations and does not involve absolute-value interpretation).
 """
 import os, sys, json, gzip, time
 from urllib.parse import urlencode
@@ -31,13 +31,13 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 BASE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(BASE)))  # 项目根
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(BASE)))  # Project root
 DATA = os.path.join(ROOT, "output", "phase1_knowledge_gap_filling",
                     "TcgaTargetGtex_rsem_gene_tpm.gz")
 CACHE = os.path.join(BASE, "ensg_map.json")
 
 # ---------------------------------------------------------------------------
-# 1. 免疫基因集（symbol 定义，与旧版一致）
+# 1. Immune gene sets (symbol definitions, consistent with the previous version)
 # ---------------------------------------------------------------------------
 IMMUNE_GENE_SETS = {
     'M2_Macrophage': ['CD163', 'MSR1', 'MRC1', 'VSIG4', 'CD200R1', 'TGFB1', 'IL10',
@@ -52,7 +52,7 @@ IMMUNE_GENE_SETS = {
 }
 ZP3_SYMBOL = "ZP3"
 
-# 内置回退表（仅当 Ensembl REST 不可用时使用，覆盖最关键基因）
+# Built-in fallback table (used only when Ensembl REST is unavailable; covers the most critical genes)
 FALLBACK_ENSG = {
     "ZP3": "ENSG00000188372", "CD163": "ENSG00000177697", "CD68": "ENSG00000097273",
     "CD274": "ENSG00000120217", "PDCD1": "ENSG00000188389", "CTLA4": "ENSG00000163558",
@@ -64,7 +64,7 @@ FALLBACK_ENSG = {
 
 
 def get_ensg_map(symbols):
-    """symbol -> Ensembl gene id（去版本号）。优先读缓存；否则查 Ensembl REST 并缓存。"""
+    """symbol -> Ensembl gene id (version removed). Read cache first; otherwise query Ensembl REST and cache."""
     if os.path.exists(CACHE):
         with open(CACHE) as f:
             cache = json.load(f)
@@ -73,7 +73,7 @@ def get_ensg_map(symbols):
     needed = [s for s in symbols if s not in cache]
     if needed:
         import urllib.request
-        print(f"  从 Ensembl REST 解析 {len(needed)} 个 symbol -> ENSG ...")
+        print(f"  Resolving {len(needed)} symbols -> ENSG from Ensembl REST ...")
         for s in needed:
             try:
                 url = f"https://rest.ensembl.org/lookup/symbol/homo_sapiens/{s}?content-type=application/json"
@@ -87,7 +87,7 @@ def get_ensg_map(symbols):
                 if fb:
                     cache[s] = fb
                 else:
-                    print(f"    !! {s} 无法解析: {e}")
+                    print(f"    !! {s} failed to resolve: {e}")
             time.sleep(0.05)
         with open(CACHE, "w") as f:
             json.dump(cache, f, indent=2)
@@ -95,13 +95,13 @@ def get_ensg_map(symbols):
 
 
 # ---------------------------------------------------------------------------
-# 2. 流式读取目标基因
+# 2. Stream-read target genes
 # ---------------------------------------------------------------------------
 def get_tcga_disease_map():
-    """TCGA 参与者 barcode -> 癌种（如 BRCA/LUAD/LGG/GBM）。
-    样本 ID 形如 TCGA-<TSS>-<参与者>-<样本>，其中第 2 段是组织来源地(TSS)，
-    并非癌种；癌种需从 GDC 的 case->project 映射获得。结果缓存到
-    tcga_disease_map.json，离线可复现。"""
+    """Map TCGA participant barcode -> cancer type (e.g. BRCA/LUAD/LGG/GBM).
+    Sample IDs look like TCGA-<TSS>-<participant>-<sample>, where the second segment is the tissue source site (TSS),
+    not the cancer type; the cancer type must be obtained from the GDC case->project mapping. The result is cached to
+    tcga_disease_map.json, reproducible offline."""
     cache = os.path.join(BASE, "tcga_disease_map.json")
     if os.path.exists(cache):
         with open(cache) as f:
@@ -119,7 +119,7 @@ def get_tcga_disease_map():
             with urllib.request.urlopen(req, timeout=60) as r:
                 data = json.loads(r.read().decode())
         except Exception as e:
-            print(f"  !! GDC 映射获取失败: {e}")
+            print(f"  !! GDC mapping fetch failed: {e}")
             break
         hits = data.get("data", {}).get("hits", [])
         if not hits:
@@ -132,22 +132,22 @@ def get_tcga_disease_map():
         frm += size
         if len(hits) < size:
             break
-        time.sleep(0.05)  # 避免触发 GDC 限流
+        time.sleep(0.05)  # avoid triggering GDC rate limiting
     with open(cache, "w") as f:
         json.dump(cases, f, indent=2)
-    print(f"  GDC 映射缓存 {len(cases)} 个参与者->癌种")
+    print(f"  GDC mapping cached {len(cases)} participants->cancer types")
     return cases
 
 
 def read_target_genes(path, target_ids, chunk=2000):
-    """流式读取 gz TPM 矩阵，仅保留 target_ids（Ensembl，含或不含版本）。
-    返回 DataFrame：index=Ensembl id，columns=sample id。"""
+    """Stream-read gz TPM matrix, keep only target_ids (Ensembl, with or without version).
+    Returns DataFrame: index=Ensembl id, columns=sample id."""
     target_strip = {t.split(".")[0]: t for t in target_ids}
     rows = {}
     with gzip.open(path, "rt") as f:
         header = f.readline().rstrip("\n").split("\t")
         samples = header[1:]
-        kept_samples = samples  # 先全保留，后面再筛 TCGA
+        kept_samples = samples  # keep all for now, filter TCGA later
         n = 0
         while True:
             lines = f.readlines(chunk)
@@ -161,18 +161,18 @@ def read_target_genes(path, target_ids, chunk=2000):
                     rows[target_strip[base]] = [float(x) for x in parts[1:]]
             n += len(lines)
             if n % 10000 == 0:
-                print(f"    已扫描 {n} 个基因行...")
+                print(f"    Scanned {n} gene lines...")
     df = pd.DataFrame.from_dict(rows, orient="index", columns=kept_samples)
     return df
 
 
 # ---------------------------------------------------------------------------
-# 3. 主流程
+# 3. Main pipeline
 # ---------------------------------------------------------------------------
 def main():
-    print("=== TCGA 泛癌分析 ZP3 与免疫特征的组织特异性（真实数据）===\n")
+    print("=== TCGA pan-cancer analysis: tissue specificity of ZP3 and immune features (real data) ===\n")
     if not os.path.exists(DATA):
-        print(f"!! 找不到真实数据文件: {DATA}\n   请先运行 segmented_resume_download 下载 "
+        print(f"!! Real data file not found: {DATA}\n    Please run segmented_resume_download to download "
               f"TcgaTargetGtex_rsem_gene_tpm.gz")
         sys.exit(1)
 
@@ -180,34 +180,34 @@ def main():
     sym2ensg = get_ensg_map(all_symbols)
     unresolved = [s for s, e in sym2ensg.items() if not e]
     if unresolved:
-        print(f"  !! 未解析的基因（将跳过）: {unresolved}")
-    # 目标 Ensembl id 列表
+        print(f"  !! Unresolved genes (will be skipped): {unresolved}")
+    # Target Ensembl id list
     target_ids = [e for e in sym2ensg.values() if e]
-    print(f"  解析到 {len(target_ids)} 个 Ensembl 基因（含 ZP3）\n")
+    print(f"  Parsed {len(target_ids)} Ensembl genes (including ZP3)\n")
 
-    print("2. 流式读取真实 TPM 矩阵（仅目标基因）...")
+    print("2. Streaming read real TPM matrix (target genes only)...")
     t0 = time.time()
     mat = read_target_genes(DATA, target_ids)
-    print(f"  读取完成，矩阵 {mat.shape[0]} 基因 × {mat.shape[1]} 样本，"
-          f"耗时 {time.time()-t0:.1f}s")
+    print(f"  Reading complete, matrix {mat.shape[0]} genes × {mat.shape[1]} samples,"
+          f"Elapsed time {time.time()-t0:.1f}s")
 
-    # ZP3 行
+    # ZP3 row
     zp3_ensg = sym2ensg.get(ZP3_SYMBOL)
     if zp3_ensg not in mat.index:
-        print(f"!! 矩阵中无 ZP3 ({zp3_ensg})，退出"); sys.exit(1)
+        print(f"!! No ZP3 ({zp3_ensg}) in matrix, exiting"); sys.exit(1)
     zp3_vec_all = mat.loc[zp3_ensg]
 
-    # 筛选 TCGA 肿瘤样本
+    # Filter TCGA tumor samples
     samples = list(mat.columns)
     tcga_mask = [s.startswith("TCGA-") and s.split("-")[3].startswith("01") for s in samples]
     tcga_samples = [s for s, m in zip(samples, tcga_mask) if m]
-    print(f"  TCGA 肿瘤样本数: {len(tcga_samples)}")
+    print(f"  TCGA tumor sample count: {len(tcga_samples)}")
     mat_t = mat[tcga_samples]
 
-    # 按癌种分组：样本 barcode = TCGA-<TSS>-<参与者>-<样本>，
-    # 第2段是组织来源地(TSS)，非癌种；用 GDC 参与者->癌种映射。
+    # Group by cancer type: sample barcode = TCGA-<TSS>-<participant>-<sample>,
+    # Field 2 is tissue source site (TSS), not cancer type; use GDC participant -> cancer type mapping.
     participant_of = {s: "-".join(s.split("-")[:3]) for s in tcga_samples}
-    p2cancer = get_tcga_disease_map()  # 参与者 barcode -> 癌种缩写
+    p2cancer = get_tcga_disease_map()  # participant barcode -> cancer type abbreviation
     cancer_of = {}
     for s in tcga_samples:
         cancer_of[s] = p2cancer.get(participant_of[s], "UNKNOWN")
@@ -217,10 +217,10 @@ def main():
     cancers = {c: v for c, v in cancers.items() if c != "UNKNOWN"}
     n_unknown = sum(1 for c in cancer_of.values() if c == "UNKNOWN")
     if n_unknown:
-        print(f"  (警告：{n_unknown} 个样本未能映射癌种，已排除)")
+        print(f"  (Warning: {n_unknown} samples could not be mapped to cancer types, excluded)")
 
-    print(f"\n3. 计算各癌种 ZP3-免疫关联（Spearman rho）...")
-    print("   评分方法：z-score 共识法（每基因跨样本标准化后取均值）")
+    print(f"\n3. Calculate ZP3-immune association per cancer type (Spearman rho)...")
+    print("   Scoring method: z-score consensus method (each gene standardized across samples then averaged)")
     records = []
     for cancer, sams in cancers.items():
         if len(sams) < 30:
@@ -230,11 +230,11 @@ def main():
             ensgs = [sym2ensg[s] for s in syms if sym2ensg.get(s) in mat_t.index]
             if not ensgs:
                 continue
-            # z-score 共识法：每基因先跨样本标准化，再取均值
-            sub = mat_t.loc[ensgs, sams]           # 基因×样本
-            gene_mean = sub.mean(axis=1)           # 每基因均值
-            gene_std = sub.std(axis=1)             # 每基因标准差
-            # 过滤 std=0 的基因（如全为底值）
+            # z-score consensus method: standardize each gene across samples first, then average
+            sub = mat_t.loc[ensgs, sams]           # genes x samples
+            gene_mean = sub.mean(axis=1)           # mean per gene
+            gene_std = sub.std(axis=1)             # per-gene standard deviation
+            # Filter genes with std=0 (e.g., all are baseline values)
             valid = gene_std > 0
             if not valid.any():
                 continue
@@ -252,10 +252,10 @@ def main():
             })
     res = pd.DataFrame(records)
     if res.empty:
-        print("!! 无有效关联结果（检查基因解析/样本量）"); sys.exit(1)
-    print(f"  共 {len(res)} 条 (癌种×基因集) 关联结果，覆盖 {res['Cancer_Code'].nunique()} 种癌")
+        print("!! No valid association results (check gene parsing/sample sizes)"); sys.exit(1)
+    print(f"  Total {len(res)} (cancer type×gene set) associations, covering {res['Cancer_Code'].nunique()} cancer types")
 
-    # 各癌种平均关联
+    # Mean association per cancer type
     cancer_summary = res.groupby("Cancer_Code").agg(
         Avg_Rho=("Rho", "mean"),
         Sig_Count=("Significant", "sum"),
@@ -263,14 +263,14 @@ def main():
     ).reset_index().sort_values("Avg_Rho", ascending=False)
     cancer_summary["Sig_Count"] = cancer_summary["Sig_Count"].astype(int)
 
-    print("\n  ZP3-免疫关联强度排名 (Top 8):")
+    print("\n  ZP3-immune association strength ranking (Top 8):")
     print("  " + "-" * 58)
     for _, row in cancer_summary.head(8).iterrows():
         print(f"  {row['Cancer_Code']:6s} | ρ = {row['Avg_Rho']:+.3f} | "
               f"Sig sets: {row['Sig_Count']}/{int(row['N_sets'])} | n={row['N_sets']*0}")
 
-    # 热图
-    print("\n4. 生成泛癌关联热图与柱状图...")
+    # heatmap
+    print("\n4. Generating pancancer association heatmap and bar chart...")
     heat = res.pivot_table(index="Cancer_Code", columns="Feature", values="Rho", aggfunc="mean")
     heat = heat.loc[cancer_summary["Cancer_Code"]]
     fig, axes = plt.subplots(1, 2, figsize=(18, 12))
@@ -293,22 +293,22 @@ def main():
     axes[1].legend()
     plt.tight_layout()
     fig.savefig(os.path.join(BASE, "fig_tcga_pancan_zp3_heatmap.png"), dpi=300, bbox_inches="tight")
-    print("  已保存 fig_tcga_pancan_zp3_heatmap.png")
+    print("  Saved fig_tcga_pancan_zp3_heatmap.png")
 
     res.to_csv(os.path.join(BASE, "tcga_pancan_zp3_correlations.csv"), index=False)
     cancer_summary.to_csv(os.path.join(BASE, "tcga_pancan_cancer_summary.csv"), index=False)
-    print("  已保存 tcga_pancan_zp3_correlations.csv / tcga_pancan_cancer_summary.csv")
+    print("  Saved tcga_pancan_zp3_correlations.csv / tcga_pancan_cancer_summary.csv")
 
-    # 结论
-    print("\n5. 结论（真实数据）:")
+    # conclusion
+    print("\n5. Conclusion (real data):")
     strong = cancer_summary[cancer_summary["Avg_Rho"] > 0.15]["Cancer_Code"].tolist()
     moderate = cancer_summary[(cancer_summary["Avg_Rho"] > 0.05) &
                               (cancer_summary["Avg_Rho"] <= 0.15)]["Cancer_Code"].tolist()
     weak = cancer_summary[cancer_summary["Avg_Rho"] <= 0.05]["Cancer_Code"].tolist()
-    print(f"  强关联 (ρ>0.15): {len(strong)} 种 — {', '.join(strong[:8])}")
-    print(f"  中等关联 (0.05<ρ≤0.15): {len(moderate)} 种 — {', '.join(moderate[:8])}")
-    print(f"  弱/无关联 (ρ≤0.05): {len(weak)} 种 — {', '.join(weak[:8])}")
-    print("\n=== 分析完成（真实 TCGA TARGET GTEx 数据，已替代原模拟数据）===")
+    print(f"  Strong correlation (ρ>0.15): {len(strong)} types — {', '.join(strong[:8])}")
+    print(f"  Moderate correlation (0.05<ρ≤0.15): {len(moderate)} types — {', '.join(moderate[:8])}")
+    print(f"  Weak/no correlation (ρ≤0.05): {len(weak)} types — {', '.join(weak[:8])}")
+    print("\n=== Analysis complete (real TCGA TARGET GTEx data, replacing the original simulated data)===")
 
 
 if __name__ == "__main__":

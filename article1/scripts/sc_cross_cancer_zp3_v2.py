@@ -13,13 +13,13 @@ def _project_root():
     return _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 ROOT = _project_root()
 """
-跨癌种单细胞 ZP3 验证 v2（假说 3：组织特异性）— 5 癌种版
-GBM + 乳腺癌 + 肾癌 + 黑色素瘤 + 肺腺癌
+Pan-cancer single-cell ZP3 validation v2 (Hypothesis 3: tissue specificity) — 5-cancer version
+GBM + breast cancer + kidney cancer + melanoma + lung adenocarcinoma
 
-v2 新增：
-- 黑色素瘤：Dissecting novel myeloid-derived cell states (多癌种髓系图谱, 2.6GB)
-  → 需按 disease 列筛选 melanoma 细胞
-- 肺腺癌：HTAN MSK LUAD (333MB) → 需按 disease 筛选 lung adenocarcinoma
+v2 additions:
+- Melanoma: Dissecting novel myeloid-derived cell states (pan-cancer myeloid atlas, 2.6GB)
+  → Need to filter melanoma cells by disease column
+- Lung adenocarcinoma: HTAN MSK LUAD (333MB) → Need to filter lung adenocarcinoma by disease
 """
 
 import scanpy as sc
@@ -40,14 +40,14 @@ ZP3_ENSEMBL = "ENSG00000188372"
 IMMUNE_MARKERS = ['TREM2', 'CD68', 'CD163', 'MRC1', 'CSF1R']
 
 def find_col(adata, candidates):
-    """在 obs 中找第一个匹配的列"""
+    """Find the first matching column in obs"""
     for c in candidates:
         if c in adata.obs.columns:
             return c
     return None
 
 def get_gene_expr(adata, gene_key):
-    """提取基因表达（支持 symbol 或 Ensembl）"""
+    """Extract gene expression (supports symbol or Ensembl)"""
     if gene_key in adata.var_names:
         idx = list(adata.var_names).index(gene_key)
     elif ZP3_ENSEMBL in adata.var_names and gene_key == 'ZP3':
@@ -62,7 +62,7 @@ def get_gene_expr(adata, gene_key):
     return X
 
 def filter_by_disease(adata, keywords):
-    """按疾病关键词筛选细胞（用于多疾病混合数据集）"""
+    """Filter cells by disease keywords (for multi-disease mixed datasets)"""
     disease_col = find_col(adata, ['disease', 'disease_ontology_term_id', 'disease_ontology'])
     if disease_col is None:
         return adata, disease_col, None
@@ -71,33 +71,33 @@ def filter_by_disease(adata, keywords):
     for kw in keywords:
         mask = mask | diseases.str.lower().str.contains(kw, na=False)
     n_keep = mask.sum()
-    print(f"    疾病列: {disease_col}, 匹配 {kw} 细胞: {n_keep}/{adata.n_obs}")
+    print(f"    Disease column: {disease_col}, matching {kw} cells: {n_keep}/{adata.n_obs}")
     if n_keep == 0:
         return adata, disease_col, mask
     return adata, disease_col, mask
 
 def analyze_dataset(adata, name, celltype_col, subset_mask=None):
-    """分析单个数据集"""
+    """Analyze a single dataset"""
     print(f"\n=== {name} ===")
-    print(f"  细胞数: {adata.n_obs}, 基因数: {adata.n_vars}")
+    print(f"  Cells: {adata.n_obs}, Genes: {adata.n_vars}")
     
-    # 应用疾病筛选
+    # Apply disease filtering
     if subset_mask is not None:
         adata = adata[subset_mask]
-        print(f"  筛选后细胞数: {adata.n_obs}")
+        print(f"  Cells after filtering: {adata.n_obs}")
     
     zp3 = get_gene_expr(adata, 'ZP3')
     if zp3 is None:
-        print("  ZP3 未找到，跳过")
+        print("  ZP3 not found, skipping")
         return None
     
-    print(f"  ZP3 检出率 (>0): {100*(zp3>0).mean():.2f}%")
-    print(f"  ZP3 均值: {zp3.mean():.4f}, 中位数: {np.median(zp3):.4f}")
+    print(f"  ZP3 detection rate (>0): {100*(zp3>0).mean():.2f}%")
+    print(f"  ZP3 mean: {zp3.mean():.4f}, median: {np.median(zp3):.4f}")
     if (zp3 > 0).any():
-        print(f"  ZP3 非零值均值: {zp3[zp3>0].mean():.4f}")
+        print(f"  ZP3 non-zero mean: {zp3[zp3>0].mean():.4f}")
     
     if celltype_col is None:
-        print("  无细胞类型注释，跳过")
+        print("  No cell type annotation, skipping")
         return None
     
     results = []
@@ -118,12 +118,12 @@ def analyze_dataset(adata, name, celltype_col, subset_mask=None):
         })
     
     ct_df = pd.DataFrame(results).sort_values('zp3_pos_pct', ascending=False)
-    print(f"  ZP3+ 细胞类型分布 (Top 5):")
+    print(f"  ZP3+ cell type distribution (Top 5):")
     for _, row in ct_df.head(5).iterrows():
         print(f"    {str(row['cell_type'])[:40]}: {row['zp3_pos_pct']:.2f}% (n={row['n_cells']})")
     
-    # 免疫标志物共表达
-    print(f"  免疫标志物共表达 (ZP3+ vs ZP3-):")
+    # Immune marker co-expression
+    print(f"  Immune marker co-expression (ZP3+ vs ZP3-):")
     coexpr_rows = []
     for gene in IMMUNE_MARKERS:
         gene_expr = get_gene_expr(adata, gene)
@@ -141,7 +141,7 @@ def analyze_dataset(adata, name, celltype_col, subset_mask=None):
                     oddsratio, p = stats.fisher_exact([[a, b], [c, d]])
                     pc_pos = 100 * a / (a + b)
                     pc_neg = 100 * c / (c + d)
-                    print(f"    {gene}: ZP3+中{pc_pos:.1f}% vs ZP3-中{pc_neg:.1f}% (OR={oddsratio:.2f}, p={p:.2e})")
+                    print(f"    {gene}: ZP3+ {pc_pos:.1f}% vs ZP3- {pc_neg:.1f}% (OR={oddsratio:.2f}, p={p:.2e})")
                     coexpr_rows.append({'dataset': name, 'gene': gene, 'or': oddsratio, 'p': p,
                                         'zp3pos_pct': pc_pos, 'zp3neg_pct': pc_neg})
                 except Exception:
@@ -151,7 +151,7 @@ def analyze_dataset(adata, name, celltype_col, subset_mask=None):
 
 def main():
     print("=" * 60)
-    print("跨癌种单细胞 ZP3 验证 v2 (5 癌种)")
+    print("Cross-cancer single-cell ZP3 validation v2 (5 cancer types)")
     print("=" * 60)
     
     all_ct = []
@@ -162,51 +162,51 @@ def main():
     try:
         gbm = sc.read_h5ad(os.path.join(ROOT, "output", "h1_pilot", "h1_adata.h5ad"))
         ct_col = find_col(gbm, ['cell_type', 'celltype', 'labels_unif'])
-        print(f"  细胞类型列: {ct_col}")
+        print(f"  Cell type column: {ct_col}")
         r = analyze_dataset(gbm, "GBM (GSE141982)", ct_col)
         if r: all_ct.append(r[0]); all_coexpr.extend(r[1])
     except Exception as e:
-        print(f"  失败: {e}")
+        print(f"  Failed: {e}")
     
-    # 2. 乳腺癌
+    # 2. Breast Cancer
     print("\n[2] Breast Cancer (HTAN)...")
     bp = os.path.join(SC_DATA_DIR, "breast_htan.h5ad")
     if os.path.exists(bp):
         try:
             b = sc.read_h5ad(bp)
             ct_col = find_col(b, ['cell_type', 'celltype', 'labels_unif'])
-            print(f"  细胞类型列: {ct_col}")
+            print(f"  Cell type column: {ct_col}")
             r = analyze_dataset(b, "Breast Cancer (HTAN)", ct_col)
             if r: all_ct.append(r[0]); all_coexpr.extend(r[1])
         except Exception as e:
-            print(f"  失败: {e}")
+            print(f"  Failed: {e}")
     else:
-        print("  数据不存在")
+        print("  Data not found")
     
-    # 3. 肾癌
+    # 3. Renal Cell Carcinoma
     print("\n[3] Renal Cell Carcinoma (HTAN)...")
     rp = os.path.join(SC_DATA_DIR, "rcc_htan.h5ad")
     if os.path.exists(rp):
         try:
             rcc = sc.read_h5ad(rp)
             ct_col = find_col(rcc, ['cell_type', 'celltype', 'labels_unif'])
-            print(f"  细胞类型列: {ct_col}")
+            print(f"  Cell type column: {ct_col}")
             r = analyze_dataset(rcc, "Renal Cell Carcinoma (HTAN)", ct_col)
             if r: all_ct.append(r[0]); all_coexpr.extend(r[1])
         except Exception as e:
-            print(f"  失败: {e}")
+            print(f"  Failed: {e}")
     else:
-        print("  数据不存在")
+        print("  Data not found")
     
-    # 4. 黑色素瘤（多癌种数据集，筛选 melanoma）
+    # 4. Melanoma (multi-cancer dataset, filter melanoma)
     print("\n[4] Melanoma (myeloid atlas)...")
     mp = os.path.join(SC_DATA_DIR, "melanoma_myeloid.h5ad")
     if os.path.exists(mp):
         try:
             mel = sc.read_h5ad(mp)
-            print(f"  总细胞数: {mel.n_obs}, obs 列: {list(mel.obs.columns)[:12]}")
+            print(f"  Total cells: {mel.n_obs}, obs columns: {list(mel.obs.columns)[:12]}")
             ct_col = find_col(mel, ['cell_type', 'celltype', 'labels_unif', 'compartment'])
-            print(f"  细胞类型列: {ct_col}")
+            print(f"  Cell type column: {ct_col}")
             mel2, dcol, mask = filter_by_disease(mel, ['melanoma'])
             if dcol and mask is not None and mask.sum() > 0:
                 r = analyze_dataset(mel2, "Melanoma", ct_col, mask)
@@ -214,19 +214,19 @@ def main():
                 r = analyze_dataset(mel2, "Melanoma", ct_col)
             if r: all_ct.append(r[0]); all_coexpr.extend(r[1])
         except Exception as e:
-            print(f"  失败: {e}")
+            print(f"  Failed: {e}")
     else:
-        print("  数据不存在（下载中）")
+        print("  Data not found (downloading)")
     
-    # 5. 肺腺癌
+    # 5. Lung adenocarcinoma
     print("\n[5] Lung Adenocarcinoma (HTAN MSK)...")
     lp = os.path.join(SC_DATA_DIR, "luad_htan.h5ad")
     if os.path.exists(lp):
         try:
             luad = sc.read_h5ad(lp)
-            print(f"  总细胞数: {luad.n_obs}, obs 列: {list(luad.obs.columns)[:12]}")
+            print(f"  Total cells: {luad.n_obs}, obs columns: {list(luad.obs.columns)[:12]}")
             ct_col = find_col(luad, ['cell_type', 'celltype', 'labels_unif'])
-            print(f"  细胞类型列: {ct_col}")
+            print(f"  Cell type column: {ct_col}")
             luad2, dcol, mask = filter_by_disease(luad, ['lung adenocarcinoma'])
             if dcol and mask is not None and mask.sum() > 0:
                 r = analyze_dataset(luad2, "Lung Adenocarcinoma (HTAN MSK)", ct_col, mask)
@@ -234,37 +234,37 @@ def main():
                 r = analyze_dataset(luad2, "Lung Adenocarcinoma (HTAN MSK)", ct_col)
             if r: all_ct.append(r[0]); all_coexpr.extend(r[1])
         except Exception as e:
-            print(f"  失败: {e}")
+            print(f"  Failed: {e}")
     else:
-        print("  数据不存在（下载中）")
+        print("  Data not found (downloading)")
     
-    # 汇总
+    # Summary
     if all_ct:
         combined = pd.concat(all_ct, ignore_index=True)
         combined.to_csv(os.path.join(OUTPUT_DIR, "sc_cross_cancer_zp3_celltype_v2.csv"), index=False)
-        print(f"\n已保存: sc_cross_cancer_zp3_celltype_v2.csv")
+        print(f"\nSaved: sc_cross_cancer_zp3_celltype_v2.csv")
         
         if all_coexpr:
             coexpr_df = pd.DataFrame(all_coexpr)
             coexpr_df.to_csv(os.path.join(OUTPUT_DIR, "sc_cross_cancer_zp3_coexpr_v2.csv"), index=False)
-            print(f"已保存: sc_cross_cancer_zp3_coexpr_v2.csv")
+            print(f"Saved: sc_cross_cancer_zp3_coexpr_v2.csv")
         
         visualize(combined, all_coexpr)
     else:
-        print("\n无可用数据！")
+        print("\nNo data available!")
     
     print("\n" + "=" * 60)
-    print("跨癌种单细胞验证 v2 完成")
+    print("Cross-cancer single-cell validation v2 complete")
     print("=" * 60)
 
 def visualize(combined, all_coexpr):
-    """可视化跨癌种结果"""
+    """Visualize cross-cancer results"""
     plt.style.use('seaborn-v0_8-whitegrid')
     
     n_panels = 2 + (1 if all_coexpr else 0)
     fig, axes = plt.subplots(1, n_panels, figsize=(6*n_panels, 5.5))
     
-    # 1. 每癌种 ZP3+ 比例最高的细胞类型
+    # 1. Cell type with highest ZP3+ proportion per cancer
     ax = axes[0]
     ds_max = combined.groupby('dataset').apply(lambda x: x.loc[x['zp3_pos_pct'].idxmax()])
     ax.barh(ds_max['dataset'], ds_max['zp3_pos_pct'], color='#d62728')
@@ -274,7 +274,7 @@ def visualize(combined, all_coexpr):
     ax.set_xlabel('ZP3+ proportion (%)')
     ax.set_title('Top ZP3+ cell type by cancer')
     
-    # 2. 髓系 vs 非髓系 ZP3+ 比例
+    # 2. Myeloid vs non-myeloid ZP3+ proportion
     ax = axes[1]
     mye_kw = ['macro', 'mono', 'myeloid', 'tam', 'mg', 'microglia', 'dendritic', 'dc ']
     rows = []
@@ -291,7 +291,7 @@ def visualize(combined, all_coexpr):
     ax.legend(title='')
     ax.tick_params(axis='x', rotation=30)
     
-    # 3. 共表达 OR
+    # 3. Coexpression OR
     if all_coexpr:
         ax = axes[2]
         coexpr_df = pd.DataFrame(all_coexpr)
@@ -312,7 +312,7 @@ def visualize(combined, all_coexpr):
     fig_path = os.path.join(OUTPUT_DIR, "fig_sc_cross_cancer_zp3_v2.png")
     plt.savefig(fig_path, dpi=150, bbox_inches='tight')
     plt.close()
-    print(f"已保存: {fig_path}")
+    print(f"Saved: {fig_path}")
 
 if __name__ == "__main__":
     main()

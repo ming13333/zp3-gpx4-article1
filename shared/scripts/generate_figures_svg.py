@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-生成 15 张可编辑 SVG 图（三篇论文图注骨架对应）。
-纯标准库（csv + 手写 SVG），无第三方依赖。每张图数据来自已审计的真实 CSV。
-输出：output/figures_svg/*.svg
+Generate 15 editable SVG figures (corresponding to the figure-caption skeletons of the three papers).
+Pure standard library (csv + hand-written SVG), no third-party dependencies. Data for each figure comes from audited real CSVs.
+Output: output/figures_svg/*.svg
 """
 import csv, math, os
 
@@ -10,10 +10,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 FIG_DIRS = {"A1": os.path.join(ROOT, "article1", "figures"),
             "A2": os.path.join(ROOT, "article2", "figures"),
             "A3": os.path.join(ROOT, "article3", "figures")}
-OUT = os.path.join(ROOT, "output", "figures_svg")  # 旧输出, 新写按 FIG 前缀分流
+OUT = os.path.join(ROOT, "output", "figures_svg")  # legacy output; new writes are routed by FIG prefix
 os.makedirs(OUT, exist_ok=True)
 
-# 旧 output/ 相对路径 -> 迁移后新位置 (2026-08-17 仓库重组)
+# old output/ relative paths -> new locations after migration (2026-08-17 repo reorganization)
 _RELOC = {
     ("cgga_validation", "output", "cgga_validation", "cgga693_clinical_associations.csv"):
         ("article1", "results", "cgga693_clinical_associations.csv"),
@@ -913,9 +913,9 @@ def fig_a3f5():
                 "article3/data/external_reanalysis/a3_external_zp3_isoform.csv")
     return s + "</svg>"
 
-# A1 图号重排（2026-08-15 v0.2 审稿修订）：新图号 → 旧生成函数
-# 新Fig1=旧Fig1(TCGA markers) / 新Fig2=旧Fig4(CGGA分子分型) / 新Fig3=旧Fig6(单细胞TREM2)
-# 新Fig4=旧Fig3(CGGA生存) / 新Fig5=旧Fig5(泛癌) / 新Fig6=旧Fig2(IMvigor210) / 新SuppS2=旧Fig7(HPA)
+# A1 figure-number remapping (2026-08-15 v0.2 review revision): new figure number -> old generator function
+# new Fig1=old Fig1 (TCGA markers) / new Fig2=old Fig4 (CGGA molecular subtypes) / new Fig3=old Fig6 (single-cell TREM2)
+# new Fig4=old Fig3 (CGGA survival) / new Fig5=old Fig5 (pan-cancer) / new Fig6=old Fig2 (IMvigor210) / new SuppS2=old Fig7 (HPA)
 FIGS = [
     ("A1_Fig1", fig_a1f1), ("A1_Fig2", fig_a1f4), ("A1_Fig3", fig_a1f6),
     ("A1_Fig4", fig_a1f3), ("A1_Fig5", fig_a1f5), ("A1_Fig6", fig_a1f2),

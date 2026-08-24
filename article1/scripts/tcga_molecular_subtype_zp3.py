@@ -1,24 +1,24 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-#38 改进③：TCGA 分子亚型分层——验证 Mesenchymal（免疫浸润最强）ZP3 最高
+#38 Improvement 3: TCGA molecular subtype stratification—verify that ZP3 is highest in Mesenchymal (strongest immune infiltration)
 =====================================================================
-数据：
-  · GBM 亚型（Verhaak 2010）：gbm_tcga_pub2013 EXPRESSION_SUBTYPE
-    (Mesenchymal / Classical / Proneural / Neural / G-CIMP) 或
+Data:
+  · GBM subtypes (Verhaak 2010): gbm_tcga_pub2013 EXPRESSION_SUBTYPE
+    (Mesenchymal / Classical / Proneural / Neural / G-CIMP) or
     lgggbm_tcga_pub TRANSCRIPTOME_SUBTYPE (ME / CL / PN / NE)
-  · LGG 亚型（Cell 2016）：lgggbm_tcga_pub IDH_1P19Q_SUBTYPE (Codel / Non-codel)
+  · LGG subtypes (Cell 2016): lgggbm_tcga_pub IDH_1P19Q_SUBTYPE (Codel / Non-codel)
     + IDH_STATUS (WT / Mutant)
-  · 本地表达矩阵：h2_bulk/TCGA.GBM.sampleMap 与 TCGA.LGG.sampleMap 的
-    HiSeq_TCGA_gene.xena.gz（log2 TPM，23 基因×153/509 样本）
+  · Local expression matrices: HiSeq_TCGA_gene.xena.gz from h2_bulk/TCGA.GBM.sampleMap and TCGA.LGG.sampleMap
+    (log2 TPM, 23 genes x 153/509 samples)
 
-分析内容：
-  1. GBM：ZP3 表达按转录组亚型（ME vs others）分组 → 验证 ME 最高
-  2. GBM：ZP3-免疫特征关联按亚型分层
-  3. LGG：ZP3 表达按 IDH 状态和 1p/19q 分组
-  4. LGG：ZP3-免疫特征关联按 IDH-codel 分层
+Analysis:
+  1. GBM: group ZP3 expression by transcriptome subtype (ME vs others) → verify ME is highest
+  2. GBM: ZP3-immune signature association stratified by subtype
+  3. LGG: group ZP3 expression by IDH status and 1p/19q
+  4. LGG: ZP3-immune signature association stratified by IDH-codel
 
-产物：tcga_subtype_zp3_*.csv + fig_tcga_subtype_zp3.png
+Products: tcga_subtype_zp3_*.csv + fig_tcga_subtype_zp3.png
 """
 import os, sys, json, gzip, time
 import numpy as np
@@ -43,7 +43,7 @@ CBIO = "https://www.cbioportal.org/api"
 
 
 def fetch_clinical(study, attr, data_type="SAMPLE"):
-    """拉取 cBioPortal 临床数据，返回 {sampleId: value}。"""
+    """Fetch cBioPortal clinical data, returns {sampleId: value}."""
     url = (f"{CBIO}/studies/{study}/clinical-data"
            f"?clinicalDataType={data_type}&attributeId={attr}&pageSize=10000")
     req = urllib.request.Request(url, headers={"Accept": "application/json"})
@@ -53,7 +53,7 @@ def fetch_clinical(study, attr, data_type="SAMPLE"):
 
 
 def load_expression(cancer):
-    """加载本地 Xena 格式表达矩阵。返回 DataFrame: index=sample, columns=gene。"""
+    """Load local Xena-format expression matrix. Returns DataFrame: index=sample, columns=gene."""
     p = os.path.join(H2_DIR, f"TCGA.{cancer}.sampleMap", "HiSeq_TCGA_gene.xena.gz")
     df = pd.read_csv(p, sep="\t", index_col=0, compression="gzip").T
     df.index.name = "sample"
@@ -69,11 +69,11 @@ def spearman_p(x, y):
 
 
 def score_zs(genes, df):
-    """z-score 共识：每基因跨样本标准化后取均值。df 行为样本、列为基因。"""
+    """z-score consensus: standardize each gene across samples, then take the mean. df rows are samples, columns are genes."""
     avail = [g for g in genes if g in df.columns]
     if not avail:
         return pd.Series(np.nan, index=df.index)
-    sub = df[avail].astype(float).T       # 基因×样本
+    sub = df[avail].astype(float).T       # genes x samples
     v = sub.std(axis=1) > 0
     if not v.any():
         return pd.Series(np.nan, index=df.index)
@@ -83,7 +83,7 @@ def score_zs(genes, df):
 
 
 def plain_mean(genes, df):
-    """基因集朴素均值评分，用于免疫评分（log2 TPM 尺度）。"""
+    """Plain mean score of a gene set, used for immune scores (log2 TPM scale)."""
     avail = [g for g in genes if g in df.columns]
     if not avail:
         return pd.Series(np.nan, index=df.index)
@@ -91,36 +91,36 @@ def plain_mean(genes, df):
 
 
 def main():
-    print("=== #38 TCGA 分子亚型分层 — ZP3/免疫关联 ===\n")
+    print("=== #38 TCGA molecular subtype stratification — ZP3/immune association ===\n")
 
-    # ---- Step 1: 拉取亚型 ----
-    print("1. 拉取 cBioPortal 分子亚型...")
+    # ---- Step 1: Fetch subtypes ----
+    print("1. Fetching cBioPortal molecular subtypes...")
     gbm_subtype = fetch_clinical("gbm_tcga_pub2013", "EXPRESSION_SUBTYPE")
     gbm_idh     = fetch_clinical("gbm_tcga_pub2013", "IDH1_MUTATION")
     lgg_idh1p19q = fetch_clinical("lgggbm_tcga_pub", "IDH_1P19Q_SUBTYPE")
     lgg_idh_stat = fetch_clinical("lgggbm_tcga_pub", "IDH_STATUS")
     lgg_tx_subtype = fetch_clinical("lgggbm_tcga_pub", "TRANSCRIPTOME_SUBTYPE")
-    print(f"   GBM 亚型: {len(gbm_subtype)} | LGG IDH-1p19q: {len(lgg_idh1p19q)} | "
+    print(f"   GBM subtypes: {len(gbm_subtype)} | LGG IDH-1p19q: {len(lgg_idh1p19q)} | "
           f"LGG IDH: {len(lgg_idh_stat)} | LGG TX: {len(lgg_tx_subtype)}")
 
-    # ---- Step 2: 加载表达 ----
-    print("2. 加载本地表达矩阵...")
+    # ---- Step 2: Load expression ----
+    print("2. Loading local expression matrices...")
     expr_gbm = load_expression("GBM")
     expr_lgg = load_expression("LGG")
     print(f"   GBM: {expr_gbm.shape} | LGG: {expr_lgg.shape}")
 
-    # ---- Step 3: GBM 亚型分析 ----
-    print("\n3. GBM 分子亚型分析...")
+    # ---- Step 3: GBM subtype analysis ----
+    print("\n3. GBM molecular subtype analysis...")
     expr_gbm["subtype"] = expr_gbm.index.map(gbm_subtype.get)
     expr_gbm["idh"]     = expr_gbm.index.map(gbm_idh.get)
     gbm_typed = expr_gbm.dropna(subset=["subtype"])
-    # 统一定义亚型分组
+    # Unified subtype grouping definition
     subtype_order = ["Mesenchymal", "Classical", "Proneural", "Neural"]
     gbm_typed["subtype_clean"] = gbm_typed["subtype"].apply(
         lambda x: x if x in subtype_order else "Other")
-    print(f"   带亚型 GBM 样本: {len(gbm_typed)}")
+    print(f"   GBM samples with subtype: {len(gbm_typed)}")
 
-    # A) ZP3 按亚型
+    # A) ZP3 by subtype
     gbm_group_stats = []
     for st in subtype_order:
         grp = gbm_typed[gbm_typed["subtype"] == st]
@@ -140,7 +140,7 @@ def main():
         print(f"   Mesenchymal vs Others: median {np.median(mes):.3f} vs "
               f"{np.median(non_mes):.3f}, MWU p={p_mes:.4f}")
 
-    # B) ZP3-免疫关联按亚型
+    # B) ZP3-immune association by subtype
     immuno_genes_all = sorted(set(M2_GENES + TREG_GENES + CHECKPT_GENES))
     rec_immuno = []
     for st in subtype_order:
@@ -156,11 +156,11 @@ def main():
                 "Rho": rho, "P": p, "N": n, "Significant": bool(p < 0.05)})
     immuno_df = pd.DataFrame(rec_immuno)
     if not immuno_df.empty:
-        print(f"   免疫关联(按亚型): {len(immuno_df)} 条, "
+        print(f"   Immune associations (by subtype): {len(immuno_df)} records, "
               f"Sig: {immuno_df['Significant'].sum()}")
 
-    # ---- Step 4: LGG 亚型分析 ----
-    print("\n4. LGG 分子亚型分析...")
+    # ---- Step 4: LGG subtype analysis ----
+    print("\n4. LGG molecular subtype analysis...")
     expr_lgg["idh_1p19q"] = expr_lgg.index.map(lgg_idh1p19q.get)
     expr_lgg["idh_status"] = expr_lgg.index.map(lgg_idh_stat.get)
     expr_lgg["tx_subtype"] = expr_lgg.index.map(lgg_tx_subtype.get)
@@ -202,7 +202,7 @@ def main():
             "ZP3_median": round(grp["ZP3"].median(), 4),
             "ZP3_mean": round(grp["ZP3"].mean(), 4)})
 
-    # LGG 免疫关联按 codel
+    # LGG immune association by codel
     for label, grp in [("Codel", lgg_codel), ("Non-codel", lgg_noncodel)]:
         if len(grp) < 15:
             continue
@@ -214,7 +214,7 @@ def main():
                 "Cancer": "LGG", "Subtype": label, "GeneSet": gset_name,
                 "Rho": rho, "P": p, "N": n, "Significant": bool(p < 0.05)})
 
-    # ---- Step 5: 保存 CSV ----
+    # ---- Step 5: Save CSV ----
     pd.DataFrame(gbm_group_stats).to_csv(
         os.path.join(OUT, "tcga_subtype_zp3_expression.csv"), index=False)
     pd.DataFrame(rec_immuno).to_csv(
@@ -224,11 +224,11 @@ def main():
     lgg_typed[["ZP3", "idh_1p19q", "idh_status", "tx_subtype"]].to_csv(
         os.path.join(OUT, "lgg_zp3_subtype_annotated.csv"))
 
-    # ---- Step 6: 图 ----
-    print("\n5. 生成分子亚型图...")
+    # ---- Step 6: Figures ----
+    print("\n5. Generating molecular subtype figures...")
     fig, axes = plt.subplots(1, 3, figsize=(16, 5.5))
 
-    # a) GBM 亚型 ZP3
+    # a) GBM subtype ZP3
     ax = axes[0]
     colors = {"Mesenchymal": "#A32D2D", "Classical": "#378ADD",
               "Proneural": "#1D9E75", "Neural": "#888780"}
@@ -253,7 +253,7 @@ def main():
     ax.set_ylabel("ZP3 log2(TPM)")
     ax.set_title(f"LGG ZP3 by 1p/19q\n(n={len(lgg_typed)})", fontsize=11)
 
-    # c) 亚型 ZP3 中位值条形
+    # c) Subtype ZP3 median bar chart
     ax = axes[2]
     stats_df = pd.DataFrame(gbm_group_stats)
     stats_df["label"] = stats_df["Cancer"] + ":" + stats_df["Subtype"]
@@ -269,11 +269,11 @@ def main():
     plt.tight_layout()
     fig.savefig(os.path.join(OUT, "fig_tcga_subtype_zp3.png"),
                 dpi=300, bbox_inches="tight")
-    print("   已保存 fig_tcga_subtype_zp3.png")
+    print("   Saved fig_tcga_subtype_zp3.png")
 
-    # ---- 结论 ----
-    print("\n=== #38 结论 ===")
-    print("  验证假说：Mesenchymal（免疫浸润最强）GBM ZP3 最高？")
+    # ---- Conclusion ----
+    print("\n=== #38 Conclusion ===")
+    print("  Testing hypothesis: Is ZP3 highest in Mesenchymal (strongest immune infiltration) GBM?")
     if "ZP3_median" in pd.DataFrame(gbm_group_stats).columns:
         mes_row = [r for r in gbm_group_stats
                    if r["Cancer"] == "GBM" and r["Subtype"] == "Mesenchymal"]
@@ -286,7 +286,7 @@ def main():
             print(f"  Others median = {others_med:.3f}, "
                   f"ratio = {mes_row[0]['ZP3_median']/others_med:.2f}x")
     print(f"  LGG Codel n={len(lgg_codel)} vs Non-codel n={len(lgg_noncodel)}")
-    print("\n=== #38 完成 ===")
+    print("\n=== #38 Done ===")
 
 
 if __name__ == "__main__":

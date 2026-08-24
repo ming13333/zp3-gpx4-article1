@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""H2/H3 配图：KM 生存曲线 + 免疫标志相关性条图 + ZP3-TREM2 散点。"""
+"""H2/H3 figures: KM survival curves + immune marker correlation bar chart + ZP3-TREM2 scatter plot."""
 import os, re
 import numpy as np
 import pandas as pd
@@ -19,8 +19,8 @@ def load_patient_csv(name):
     return df
 
 def get_p_from_log(study):
-    """2026-08-10 复算修正：不再从旧日志解析（旧日志为含 bug 的 0.902/0.954），
-    改用标准超几何方差独立重算 log-rank p（GBM≈0.353, LGG≈0.384）。"""
+    """2026-08-10 recalculation fix: no longer parse from old logs (old logs had buggy 0.902/0.954),
+    instead independently recompute log-rank p with standard hypergeometric variance (GBM≈0.353, LGG≈0.384)."""
     from scipy import stats as _st
     osf = "h2_gbm_tcga_zp3_os.csv" if "gbm" in study else "h2_lgg_tcga_zp3_os.csv"
     dd = pd.read_csv(os.path.join(BASE, osf)).dropna(subset=["ZP3", "time", "event"])

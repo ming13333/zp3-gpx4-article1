@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-"""A2 参考文献 Crossref 批量核验脚本
-用法: python verify_refs_a2.py <md_file> [--limit N] [--out report.csv]
+"""A2 References Crossref Batch Verification Script
+Usage: python verify_refs_a2.py <md_file> [--limit N] [--out report.csv]
 """
 import re, sys, json, time, difflib, urllib.request, urllib.parse
 
@@ -35,7 +35,7 @@ def extract(ref):
     ref = re.sub(r'^\d{2}\.\s*', '', ref).strip()
     star = ref.find('*')
     before = ref[:star] if star != -1 else ref
-    # 标题: before 中最后一个 ".大写" 之后
+    # Title: after the last ". Capital" in before
     dots = list(re.finditer(r'\.\s[A-Z]', before))
     title = before[dots[-1].start()+2:].strip() if dots else before
     title = re.sub(r'\s+', ' ', title).strip()
@@ -120,7 +120,7 @@ def main(md_path, limit=None, out='ref_verify_report.csv'):
     print('report ->', out)
 
 if __name__ == '__main__':
-    md = sys.argv[1] if len(sys.argv) > 1 else 'Article2_A2_Cancers格式_v0.4.md'
+    md = sys.argv[1] if len(sys.argv) > 1 else 'Article2_A2_Cancers_format_v0.4.md'
     lim = int(sys.argv[sys.argv.index('--limit')+1]) if '--limit' in sys.argv else None
     out = sys.argv[sys.argv.index('--out')+1] if '--out' in sys.argv else 'ref_verify_report.csv'
     main(md, lim, out)

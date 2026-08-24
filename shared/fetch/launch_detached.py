@@ -12,7 +12,7 @@ def _project_root():
 ROOT = _project_root()
 import os
 # -*- coding: utf-8 -*-
-"""以脱离会话方式启动 resume_downloads.py (DETACHED_PROCESS)"""
+"""Launch resume_downloads.py detached from the session (DETACHED_PROCESS)"""
 import subprocess, sys, os
 
 BASE = ros.path.join(ROOT, "output", "phase1_knowledge_gap_filling")

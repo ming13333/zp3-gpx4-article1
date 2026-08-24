@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-CGGA-325 Cox 生存分析结果固化（2026-08-14 全流程审计要求）。
-背景：cgga325_validation.py 第 162-168 行 Cox 仅 stdout 打印、无落盘；
-本次重跑并将 HR/CI/p 写入 CSV，供图注骨架 A1 Fig3 引用。
+CGGA-325 Cox survival analysis results freeze (2026-08-14 full-process audit requirement).
+Background: cgga325_validation.py lines 162-168 Cox only prints to stdout, no disk write;
+This rerun writes HR/CI/p to CSV for reference by the figure legend skeleton A1 Fig3.
 """
 import os, pandas as pd
 from lifelines import CoxPHFitter
@@ -22,32 +22,32 @@ common = sorted(set(clin["CGGA_ID"]) & set(zp3.index))
 ca = clin[clin["CGGA_ID"].isin(common)].set_index("CGGA_ID").loc[common]
 za = zp3[common]
 
-# --- 生存分析 ---
+# --- Survival analysis ---
 surv = pd.DataFrame({
     "time": ca["OS"].values,
     "event": ca["Censor (alive=0; dead=1)"].values,
     "zp3": za.values,
 }, index=ca.index).dropna()
 
-# Log-rank（中位分组）
+# Log-rank (median grouping)
 med = surv["zp3"].median()
 high = surv[surv["zp3"] >= med]
 low = surv[surv["zp3"] < med]
 lr = logrank_test(high["time"], low["time"],
                   event_observed_A=high["event"], event_observed_B=low["event"])
 
-# Cox（连续 ZP3，单变量）
+# Cox (continuous ZP3, univariate)
 cph = CoxPHFitter()
 cph.fit(surv[["time", "event", "zp3"]], duration_col="time", event_col="event")
 hr = cph.hazard_ratios_["zp3"]
 p = cph.summary["p"]["zp3"]
-# 注意：lifelines confidence_intervals_ 返回 log-hazard (beta) 尺度 CI，需 exp 转换为 HR 尺度
+# Note: lifelines confidence_intervals_ returns CI on the log-hazard (beta) scale; use exp to convert to HR scale
 import numpy as np
 se_zp3 = cph.standard_errors_["zp3"]
 beta_zp3 = cph.params_["zp3"]
 ci_lo, ci_hi = float(np.exp(beta_zp3 - 1.96 * se_zp3)), float(np.exp(beta_zp3 + 1.96 * se_zp3))
 
-# Cox（多变量：+年龄 +分级 +IDH +1p19q，若字段可用）
+# Cox (multivariable: +Age +Grade +IDH +1p19q, if fields available)
 row_uni = {
     "Cohort": "CGGA-325", "Model": "Cox univariate (continuous ZP3)",
     "n": len(surv), "Events": int(surv["event"].sum()),
@@ -57,7 +57,7 @@ row_uni = {
     "High_n": len(high), "Low_n": len(low),
 }
 
-# 多变量：尝试调整 age/grade/IDH/1p19q
+# Multivariable: try adjusting for age/grade/IDH/1p19q
 rows = [row_uni]
 try:
     cols_avail = []
@@ -76,7 +76,7 @@ try:
             m_surv[dst] = vals
             cols_avail.append(dst)
     m_surv = m_surv.dropna()
-    print(f"多变量 Cox: 可用样本 n={len(m_surv)} (协变量 {cols_avail})")
+    print(f"Multivariable Cox: available samples n={len(m_surv)} (covariates {cols_avail})")
     if len(cols_avail) >= 1 and len(m_surv) >= 50:
         cph_m = CoxPHFitter()
         cph_m.fit(m_surv[["time", "event", "zp3"] + cols_avail],
@@ -92,11 +92,11 @@ try:
         }
         rows.append(row_multi)
     else:
-        print("多变量 Cox 跳过：无可用协变量或样本不足")
+        print("Multivariable Cox skipped: no available covariates or insufficient samples")
 except Exception as e:
-    print("多变量 Cox 未完成:", e)
+    print("Multivariable Cox not completed:", e)
 
 res = pd.DataFrame(rows)
 res.to_csv(OUT, index=False)
-print("已固化:", OUT)
+print("Frozen:", OUT)
 print(res.to_string())

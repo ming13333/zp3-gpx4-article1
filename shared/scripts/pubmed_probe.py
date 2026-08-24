@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""PubMed E-utilities 命门核验检索"""
+"""PubMed E-utilities key verification search"""
 import requests, time, json, sys
 
 BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
@@ -27,11 +27,11 @@ def parse_medline(block):
     return d
 
 QUERIES = {
- "Q1_ZP3肿瘤DC": 'ZP3[Title/Abstract] AND (dendritic OR DC OR "tumor microenvironment")',
+ "Q1_ZP3_tumor_DC": 'ZP3[Title/Abstract] AND (dendritic OR DC OR "tumor microenvironment")',
  "Q2_ZP3_CNS": 'ZP3[Title/Abstract] AND (brain OR glioma OR microglia OR neuro OR astrocytoma)',
- "Q3_ZP3单细胞_免疫": 'ZP3 AND (single-cell OR scRNA-seq OR myeloid OR macrophage) AND 2019:2026[dp]',
- "Q4_胞外GPX4_神经": 'GPX4[Title/Abstract] AND (brain OR stroke OR glioma OR ischemia OR neurological) AND 2024:2026[dp]',
- "Q5_ZP3_Cancer转录本": '(ZP3-Cancer OR "ZP3-Cancer" OR "Zona Pellucida glycoprotein 3" OR ZP3) AND (cancer antigen OR tumor antigen OR ectopic expression) AND 2020:2026[dp]',
+ "Q3_ZP3_singlecell_immune": 'ZP3 AND (single-cell OR scRNA-seq OR myeloid OR macrophage) AND 2019:2026[dp]',
+ "Q4_extracellular_GPX4_neuro": 'GPX4[Title/Abstract] AND (brain OR stroke OR glioma OR ischemia OR neurological) AND 2024:2026[dp]',
+ "Q5_ZP3_Cancer_transcript": '(ZP3-Cancer OR "ZP3-Cancer" OR "Zona Pellucida glycoprotein 3" OR ZP3) AND (cancer antigen OR tumor antigen OR ectopic expression) AND 2020:2026[dp]',
 }
 
 out=[]

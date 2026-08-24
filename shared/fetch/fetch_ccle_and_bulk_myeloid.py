@@ -13,7 +13,7 @@ ROOT = _project_root()
 import os
 # -*- coding: utf-8 -*-
 """
-方法3 + 检验B fetch：CCLE 纯肿瘤细胞系 ZP3 表达 + bulk 泛髓系指数偏相关
+Method 3 + Test B fetch: CCLE pure tumor cell line ZP3 expression + bulk pan-myeloid index partial correlation
 """
 import requests, time, sys, os, json
 import numpy as np, pandas as pd
@@ -38,19 +38,19 @@ def entrez(sym):
     if isinstance(d,dict) and "entrezGeneId" in d: return d["entrezGeneId"]
     return None
 
-# ---------------- 方法3: CCLE ----------------
+# ---------------- Method 3: CCLE ----------------
 print("="*70)
-print("[方法3] CCLE 纯肿瘤细胞系 ZP3 表达（检验:纯肿瘤细胞是否表达 ZP3）")
+print("[Method3] CCLE pure tumor cell line ZP3 expression (test: whether pure tumor cells express ZP3)")
 mp = "ccle_broad_2019_rna_seq_mrna"
-# 1) sample list（全部 CCLE cell lines）
+# 1) sample list (all CCLE cell lines)
 sl = get("/sample-lists/ccle_broad_2019_all/sample-ids")
 if isinstance(sl, list) and sl:
     samples = sl
-    print("  CCLE 全部细胞系:", len(samples))
-    # 2) 逐基因拉 ZP3
+    print("  CCLE all cell lines:", len(samples))
+    # 2) Pull ZP3 by gene
     z3e = entrez("ZP3")
     print("  ZP3 entrez:", z3e)
-    # 拉 ZP3 全部样本(分块 GET molecular-data, 单基因)
+    # Pull ZP3 for all samples (chunked GET molecular-data, single gene)
     rows = {}
     chunks = [samples[i:i+150] for i in range(0,len(samples),150)]
     for ci,chk in enumerate(chunks):
@@ -64,14 +64,14 @@ if isinstance(sl, list) and sl:
         except Exception as e:
             print("  chunk %d err %s"%(ci,e))
         time.sleep(0.2)
-    print("  拉到 ZP3 表达样本数:", len(rows))
-    # 3) lineage/type 元数据
+    print("  Samples with ZP3 expression fetched:", len(rows))
+    # 3) lineage/type metadata
     cts = get("/studies/ccle_broad_2019/samples", params={"pageSize":len(samples)})
     meta={}
     if isinstance(cts,list):
         for s in cts:
             meta[s["sampleId"]]=s
-    # 4) 汇总
+    # 4) Summary
     recrows=[]
     for sid,val in rows.items():
         recrows.append({"sampleId":sid,"ZP3":val,
@@ -79,26 +79,26 @@ if isinstance(sl, list) and sl:
                         "patientId":meta.get(sid,{}).get("patientId","")})
     df=pd.DataFrame(recrows)
     df.to_csv(os.path.join(BASE,"ccle_zp3_expr.csv"),index=False)
-    print("  已存 ccle_zp3_expr.csv  形状:",df.shape)
-    print("  ZP3>0 的细胞系数:",int((df['ZP3']>0).sum()),"/",len(df))
-    # 5) 重点: CNS/胶质瘤细胞系
+    print("  Saved ccle_zp3_expr.csv  shape:", df.shape)
+    print("  Number of cell lines with ZP3>0:", int((df['ZP3']>0).sum()), "/", len(df))
+    # 5) Key: CNS/glioma cell lines
     cns = df[df['cancerType'].astype(str).str.upper().str.contains("CNS",na=False)]
-    print("  CNS lineage 细胞系:",len(cns))
+    print("  CNS lineage cell lines:",len(cns))
     if len(cns):
-        print("  CNS 中 ZP3>0:",int((cns['ZP3']>0).sum()),"/",len(cns))
-        print("  CNS ZP3 表达 max/mean(>0):", cns['ZP3'].max(), cns.loc[cns['ZP3']>0,'ZP3'].mean() if (cns['ZP3']>0).any() else 0)
-        print("  CNS ZP3 表达 top8:")
+        print("  CNS with ZP3>0:",int((cns['ZP3']>0).sum()),"/",len(cns))
+        print("  CNS ZP3 expression max/mean(>0):", cns['ZP3'].max(), cns.loc[cns['ZP3']>0,'ZP3'].mean() if (cns['ZP3']>0).any() else 0)
+        print("  CNS ZP3 expression top8:")
         print(cns.sort_values('ZP3',ascending=False).head(8)[['sampleId','patientId','ZP3']].to_string(index=False))
-    # 6) 其它实体瘤细胞系对比（看 ZP3 是否主要在生殖/其它谱系）
-    print("\n  非中枢 ZP3 表达 top5:")
+    # 6) Comparison of other solid tumor cell lines (to see whether ZP3 is mainly in reproductive/other lineages)
+    print("\n  Non-CNS ZP3 expression top5:")
     others = df[~df['cancerType'].astype(str).str.upper().str.contains("CNS",na=False)]
     print(others.sort_values('ZP3',ascending=False).head(5)[['sampleId','patientId','cancerType','ZP3']].to_string(index=False))
 else:
-    print("  CCLE sample-list 拉取失败:", sl)
+    print("  CCLE sample-list fetch failed:", sl)
 
-# ---------------- 检验B: bulk 泛髓系指数 ----------------
+# ---------------- Test B: bulk pan-myeloid index ----------------
 print("\n"+"="*70)
-print("[检验 B] bulk 层面 ZP3↔TREM2 是否独立于总髓系负荷")
+print("[Test B] bulk-level: whether ZP3↔TREM2 is independent of total myeloid burden")
 marker_syms=["CD68","CD14","LYZ","CSF1R","ITGAM"]
 for study in ["gbm_tcga","lgg_tcga"]:
     mp_r="%s_rna_seq_v2_mrna"%study
@@ -106,11 +106,11 @@ for study in ["gbm_tcga","lgg_tcga"]:
     samples=get("/sample-lists/%s/sample-ids"%sll)
     if not isinstance(samples,list) or not samples:
         print("  %s sample list err"%study); continue
-    # 并入现有 expr（已含 ZP3,TREM2 等）
+    # Merge into existing expr (already includes ZP3, TREM2, etc.)
     epath=os.path.join(BASE,"expr_%s_tcga_patient.csv"%("gbm" if "gbm" in study else "lgg"))
     expr=pd.read_csv(epath,index_col=0)
-    # 需要按 patientId 对齐；expr index 就是 patientId（之前脚本用 patient 级）
-    # 从 sample 拉到 patient: fetch 返回含 patientId
+    # Need to align by patientId; expr index is patientId (previous script used patient level)
+    # Map from sample to patient: fetch returns patientId
     for sym in marker_syms:
         e=entrez(sym)
         if not e: continue
@@ -124,7 +124,7 @@ for study in ["gbm_tcga","lgg_tcga"]:
         except Exception as ex:
             print("  %s %s err %s"%(study,sym,ex))
         time.sleep(0.2)
-    # 髓系指数 = 可用 marker 的 z-mean
+    # Myeloid index = z-mean of available markers
     avail=[g for g in marker_syms if g in expr.columns and expr[g].notna().sum()>30]
     if avail:
         zs=(expr[avail]-expr[avail].mean())/expr[avail].std()
@@ -143,8 +143,8 @@ for study in ["gbm_tcga","lgg_tcga"]:
         rtr=sub["TREM2"].values-reg(sub["TREM2"].values,sub["myeloid_idx"].values)
         rp,pp=st.pearsonr(rzp,rtr)
         print("--- %s n=%d ---"%(study,len(sub)))
-        print("  ZP3vsTREM2 粗: r=%.3f p=%.3g"%(r0,p0))
-        print("  ZP3vs髓系指数: r=%.3f p=%.3g"%(r1,p1))
-        print("  TREM2vs髓系指数: r=%.3f p=%.3g"%(r2,p2))
-        print("  偏相关(控髓系指数) ZP3vsTREM2: r_partial=%.3f p=%.3g"%(rp,pp))
+        print("  ZP3 vs TREM2 crude: r=%.3f p=%.3g"%(r0,p0))
+        print("  ZP3 vs myeloid index: r=%.3f p=%.3g"%(r1,p1))
+        print("  TREM2 vs myeloid index: r=%.3f p=%.3g"%(r2,p2))
+        print("  Partial correlation (controlling for myeloid index) ZP3 vs TREM2: r_partial=%.3f p=%.3g"%(rp,pp))
         expr.to_csv(os.path.join(BASE,"expr_%s_b_myeloid.csv"%("gbm" if "gbm" in study else "lgg")))

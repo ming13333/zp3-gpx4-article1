@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""二次核验: 对可疑条目用候选 DOI 反查确认标题/年份"""
+"""Second verification: reverse-lookup candidate DOIs for suspicious entries to confirm title/year"""
 import json, urllib.request, urllib.parse, time
 
 UA = 'a2-ref-verify/1.0 (mailto:lm962272@gmail.com)'

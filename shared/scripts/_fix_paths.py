@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""一次性工具：把脚本中的硬编码项目根路径替换为基于 __file__ 计算的 ROOT。
-仅做字符串级替换，不改动逻辑。干跑模式打印改动，确认后去掉 DRY_RUN=False 应用。"""
+"""One-time tool: replace hardcoded project root paths in scripts with ROOT computed from __file__.
+Performs string-level replacement only, without changing logic. Dry-run mode prints changes; after confirming, remove DRY_RUN=False to apply."""
 import os, re, sys
 
-ROOT_LITERAL = "C:/D/workbuddy/科研/细胞外GPX4免疫抑制"
+ROOT_LITERAL = "C:/D/workbuddy/research/extracellular_GPX4_immunosuppression"
 SUBDIRS = ["h2_bulk", "phase1_knowledge_gap_filling", "h1_pilot",
            "cgga_validation", "gse91061_validation", "immunotherapy_validation",
            "tcga_pancan", "comprehensive_lit_search", "pubmed_probe",
@@ -12,7 +12,7 @@ SUBDIRS = ["h2_bulk", "phase1_knowledge_gap_filling", "h1_pilot",
 DRY_RUN = (len(sys.argv) > 1 and sys.argv[1] == "apply")
 
 def root_def():
-    # 向上寻找含 'output' 子目录的项目根
+    # Search upward for the project root containing an 'output' subdirectory
     return (
         'import os as _os\n'
         'def _project_root():\n'
@@ -30,7 +30,7 @@ def root_def():
 
 def transform(text):
     changed = False
-    # 1) 完整子目录路径字面量 -> os.path.join(ROOT, "output", d)
+    # 1) Full subdirectory path literals -> os.path.join(ROOT, "output", d)
     for d in SUBDIRS:
         full = ROOT_LITERAL + "/output/" + d
         for q in ('"', "'"):
@@ -39,17 +39,17 @@ def transform(text):
             if needle in text:
                 text = text.replace(needle, repl)
                 changed = True
-    # 2) 其余裸根字面量 -> ROOT
+    # 2) Remaining bare root literals -> ROOT
     for q in ('"', "'"):
         needle = q + ROOT_LITERAL + q
         if needle in text:
             text = text.replace(needle, 'ROOT')
             changed = True
-    # 3) 形如 S + "/output/h2_bulk/..." 已在上一步变 ROOT + "..."，合法。
+    # 3) Forms like S + "/output/h2_bulk/..." already became ROOT + "..." in the previous step, which is valid.
     return text, changed
 
 def main():
-    base = "C:/D/workbuddy/科研/细胞外GPX4免疫抑制/output"
+    base = "C:/D/workbuddy/research/extracellular_GPX4_immunosuppression/output"
     pyfiles = []
     for root, _, files in os.walk(base):
         for f in files:
@@ -64,12 +64,12 @@ def main():
         new, changed = transform(orig)
         if not changed:
             continue
-        # 确保 import os 存在
+        # Ensure import os exists
         if not re.search(r"^\s*import\s+os\b", new, re.M):
             new = "import os\n" + new
-        # 注入 ROOT 定义（若尚无）
+        # Inject ROOT definition (if not already present)
         if "ROOT = " not in new and "_project_root" not in new:
-            # 放在首行之后（跳过 shebang/encoding）
+            # Place after the first line (skip shebang/encoding)
             lines = new.split("\n")
             idx = 0
             if lines and lines[0].startswith("#!"):
@@ -85,7 +85,7 @@ def main():
             print(f"[APPLIED] {fp}")
         else:
             print(f"[DRYRUN ] {fp}")
-    print(f"总计待处理文件数: {total}  (DRY_RUN={DRY_RUN})")
+    print(f"Total files to process: {total}  (DRY_RUN={DRY_RUN})")
 
 if __name__ == "__main__":
     main()

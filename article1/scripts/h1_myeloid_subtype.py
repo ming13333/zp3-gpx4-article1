@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-H1 深化：细分髓系重算 ZP3
-- 读 h1_adata.h5ad (GSE141982 GBM, 已 QC)
-- 泛髓系门控 (pan-myeloid) 定义髓系池，避免仅看 TAM 簇漏掉混入 NK 簇的髓系
-- 用稳态小胶质 (MG) vs BMDM/TAM vs DC 标记打分，细分亚类
-- 分别重算 ZP3+ 率，判断富集落点
+H1 Deep-dive: subdivide myeloid and recalculate ZP3
+- Load h1_adata.h5ad (GSE141982 GBM, already QC)
+- Pan-myeloid gating defines the myeloid pool, avoiding missing myeloid cells hidden in NK clusters if only TAM clusters are used
+- Use scores for homeostatic microglia (MG) vs BMDM/TAM vs DC markers to subdivide subtypes
+- Recalculate ZP3+ rate separately to determine enrichment location
 """
 import os, numpy as np, pandas as pd, scanpy as sc
 
@@ -36,9 +36,9 @@ zp3 = ad.raw[:, "ZP3"].X.toarray().ravel()
 ad.obs["ZP3_expr"] = zp3
 ad.obs["ZP3_pos"]  = zp3 > 0
 
-# ---- 1) 诊断：每个 leiden 簇的髓系/亚类平均得分，看髓系是否藏在 NK 簇 ----
+# ---- 1) Diagnostics: mean scores of myeloid/subtype per leiden cluster, to see if myeloid cells are hidden in NK clusters ----
 print("="*72)
-print("诊断：各 leiden 簇的髓系标记均值 (log1p)")
+print("Diagnostics: mean myeloid marker per leiden cluster (log1p)")
 diag = ad.obs.groupby("leiden").agg(
     n=("ZP3_pos", "size"),
     pan_myeloid=("pan_myeloid", "mean"),
@@ -49,14 +49,14 @@ diag = ad.obs.groupby("leiden").agg(
 ).round(3)
 print(diag.to_string())
 
-# ---- 2) 泛髓系门控定义髓系池 ----
-# 门控：pan_myeloid > 0（至少一个泛髓系标记可检测）
+# ---- 2) Pan-myeloid gating defines the myeloid pool ----
+# Gating: pan_myeloid > 0 (at least one pan-myeloid marker detectable)
 myeloid = ad.obs["pan_myeloid"] > 0
 ad.obs["myeloid"] = myeloid
-print("\n泛髓系门控后髓系池细胞数:", int(myeloid.sum()),
+print("\nMyeloid pool cell count after pan-myeloid gating:", int(myeloid.sum()),
       f"({100*myeloid.mean():.1f}% of {ad.n_obs})")
 
-# ---- 3) 髓系池内细分亚类 ----
+# ---- 3) Subclassification within the myeloid pool ----
 sub = ad.obs[myeloid]
 M = sub[["MG_score", "TAM_score", "DC_score"]].values
 best = np.argmax(M, axis=1)
@@ -65,9 +65,9 @@ classes = np.array(["MG", "TAM", "DC"])[best]
 classes[val <= 0] = "Unassigned"
 ad.obs.loc[myeloid, "myeloid_subclass"] = classes
 
-# ---- 4) 分别重算 ZP3+ 率 ----
+# ---- 4) Recalculate ZP3+ rates separately ----
 print("\n" + "="*72)
-print("细分髓系 ZP3 表达（GSE141982 GBM）")
+print("Myeloid subclass ZP3 expression (GSE141982 GBM)")
 rows = []
 for cls in ["MG", "TAM", "DC", "Unassigned"]:
     cc = ad.obs[myeloid & (ad.obs["myeloid_subclass"] == cls)]
@@ -84,19 +84,19 @@ for cls in ["MG", "TAM", "DC", "Unassigned"]:
     })
 res = pd.DataFrame(rows).sort_values("n_cells", ascending=False)
 print(res.to_string(index=False))
-print(f"\n髓系池总体: n={int(myeloid.sum())}, ZP3+={int(ad.obs[myeloid]['ZP3_pos'].sum())}, "
+print(f"\nMyeloid pool overall: n={int(myeloid.sum())}, ZP3+={int(ad.obs[myeloid]['ZP3_pos'].sum())}, "
       f"{100*ad.obs[myeloid]['ZP3_pos'].mean():.2f}%")
-print(f"全数据集总体 ZP3+ 率: {100*ad.obs['ZP3_pos'].mean():.2f}%")
+print(f"Full dataset overall ZP3+ rate: {100*ad.obs['ZP3_pos'].mean():.2f}%")
 
-# ---- 5) 与原始簇水平 TAM 注释对比 ----
+# ---- 5) Comparison with original cluster-level TAM annotation ----
 orig_tam = ad.obs[ad.obs["cell_type"] == "TAM_Macrophage"]
-print(f"\n原始簇水平 TAM 簇(leiden9): n={len(orig_tam)}, ZP3+={orig_tam['ZP3_pos'].sum()}, "
+print(f"\nOriginal cluster-level TAM cluster (leiden9): n={len(orig_tam)}, ZP3+={orig_tam['ZP3_pos'].sum()}, "
       f"{100*orig_tam['ZP3_pos'].mean():.2f}%")
 
-# ---- 6) 保存 ----
+# ---- 6) Save ----
 res.to_csv(os.path.join(OUT, "h1_zp3_myeloid_subtype.csv"), index=False)
-# UMAP 着色
+# UMAP coloring
 sc.pl.umap(ad, color=["myeloid_subclass", "ZP3_expr"],
            save="_myeloid_subtype.png", show=False, frameon=False, legend_fontsize=8, cmap="viridis")
 ad.write(os.path.join(OUT, "h1_adata_subtyped.h5ad"))
-print("\n已保存: h1_zp3_myeloid_subtype.csv, h1_adata_subtyped.h5ad, umap_myeloid_subtype.png")
+print("\nSaved: h1_zp3_myeloid_subtype.csv, h1_adata_subtyped.h5ad, umap_myeloid_subtype.png")

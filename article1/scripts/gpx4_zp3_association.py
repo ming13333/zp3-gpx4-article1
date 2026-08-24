@@ -1,27 +1,27 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-#37 改进②：GPX4–ZP3 表达关联（回扣 Cell 2026 GPX4-ZP3 免疫抑制轴迁移逻辑）
+#37 Improvement ②: GPX4–ZP3 expression association (tying back to Cell 2026 GPX4-ZP3 immunosuppressive axis migration logic)
 =====================================================================
-背景：三篇文章均声称将 Cell 2026「胞外 GPX4–ZP3 免疫抑制 DAMP 轴」从
-生殖生物学迁移至神经肿瘤领域，但此前从未验证过 GPX4 与 ZP3 的表达关联。
-本脚本用真实数据补齐这一回扣证据。
+Background: All three articles claim to migrate the Cell 2026 'extracellular GPX4–ZP3 immunosuppressive DAMP axis' from
+reproductive biology to neuro-oncology, but the expression association between GPX4 and ZP3 has never been validated.
+This script uses real data to fill in this back-reference evidence.
 
-数据：本地真实 TPM (TcgaTargetGtex_rsem_gene_tpm.gz, 1.3GB, 已下载)
-目标基因：
+Data: local real TPM (TcgaTargetGtex_rsem_gene_tpm.gz, 1.3GB, already downloaded)
+Target genes:
   - ZP3 (ENSG00000188372)
-  - GPX4 (glutathione peroxidase 4, ENSG00000112715)  ← 轴核心
-  - 铁死亡评分基因：GPX4 / ACSL4 / SLC7A11 / TFRC / FTL / FTH1 / NFE2L2 (NRF2)
-    从 anti-ferroptosis(防御) 与 pro-ferroptosis(敏感) 两方面构成评分
+  - GPX4 (glutathione peroxidase 4, ENSG00000112715)  ← axis core
+  - Ferroptosis scoring genes: GPX4 / ACSL4 / SLC7A11 / TFRC / FTL / FTH1 / NFE2L2 (NRF2)
+    The score is constructed from two aspects: anti-ferroptosis (defense) and pro-ferroptosis (sensitivity)
 
-分析内容：
-  1. GPX4–ZP3 表达 Spearman 关联（全部 TCGA 肿瘤样本 + 胶质瘤 GBM/LGG）
-  2. 铁死亡防御评分 (GPX4/SLC7A11/NFE2L2) 与 ZP3 关联
-  3. 铁死亡敏感评分 (ACSL4/TFRC) 与 ZP3 关联
-  4. 泛癌各癌种 GPX4–ZP3 关联分层，验证组织特异性
-  5. 产出关联图 + CSV，回扣迁移逻辑
+Analysis content:
+  1. GPX4–ZP3 expression Spearman correlation (all TCGA tumor samples + glioma GBM/LGG)
+  2. Ferroptosis defense score (GPX4/SLC7A11/NFE2L2) association with ZP3
+  3. Ferroptosis sensitivity score (ACSL4/TFRC) association with ZP3
+  4. Pan-cancer stratification of GPX4–ZP3 association by cancer type, validating tissue specificity
+  5. Output association plots + CSV, linking back to migration logic
 
-产物：gpx4_zp3_*csv + fig_gpx4_zp3_association.png
+Outputs: gpx4_zp3_*csv + fig_gpx4_zp3_association.png
 """
 import os, json, gzip, time
 import numpy as np
@@ -40,29 +40,29 @@ DISEASE_MAP = os.path.join(ROOT, "output", "tcga_pancan", "tcga_disease_map.json
 ENSG_MAP = os.path.join(ROOT, "output", "tcga_pancan", "ensg_map.json")
 
 # ---------------------------------------------------------------------------
-# 目标基因（symbol -> ensg）
+# Target genes (symbol -> ensg)
 # ---------------------------------------------------------------------------
 GENES = {
     "ZP3": "ENSG00000188372",
-    # 铁死亡轴
+    # Ferroptosis axis
     "GPX4": "ENSG00000112715",
     "ACSL4": "ENSG00000068366",
     "SLC7A11": "ENSG00000151012",
-    "TFRC": "ENSG00000072274",      # 铁摄取促铁死亡
-    "FTL": "ENSG00000087086",       # 铁蛋白轻链(储铁, 防铁死亡)
-    "FTH1": "ENSG00000167996",      # 铁蛋白重链
-    "NFE2L2": "ENSG00000116044",    # NRF2, 铁死亡防御转录因子
-    # 下游脂质过氧化
+    "TFRC": "ENSG00000072274",      # iron uptake promotes ferroptosis
+    "FTL": "ENSG00000087086",       # ferritin light chain (stores iron, protects against ferroptosis)
+    "FTH1": "ENSG00000167996",      # ferritin heavy chain
+    "NFE2L2": "ENSG00000116044",    # NRF2, ferroptosis defense transcription factor
+    # downstream lipid peroxidation
     "ALOX15": "ENSG00000161905",
 }
 
-# 铁死亡评分分解
-ANTI_FERROPTOSIS = ["GPX4", "SLC7A11", "NFE2L2", "FTL"]   # 防御
-PRO_FERROPTOSIS = ["ACSL4", "TFRC"]                       # 敏感/促死
+# Ferroptosis score decomposition
+ANTI_FERROPTOSIS = ["GPX4", "SLC7A11", "NFE2L2", "FTL"]   # defense
+PRO_FERROPTOSIS = ["ACSL4", "TFRC"]                       # sensitive/promotes death
 
 
 def ensure_ensg(dict_path, extra):
-    """把缺失的基因映射合并写入缓存。"""
+    """Merge missing gene mappings into the cache and write them out."""
     with open(dict_path) as f:
         m = json.load(f)
     added = set()
@@ -73,12 +73,12 @@ def ensure_ensg(dict_path, extra):
     if added:
         with open(dict_path, "w") as f:
             json.dump(m, f, indent=2)
-        print(f"  ensg_map.json 已补写 {sorted(added)}")
+        print(f"  ensg_map.json supplemented with {sorted(added)}")
     return m
 
 
 def read_target_genes(path, want_ensg, chunk=2000):
-    """流式读取 gz TPM，仅保留目标基因行。返回 DataFrame: index=ensg, cols=sample。"""
+    """Stream-read gz TPM, keeping only target gene rows. Returns DataFrame: index=ensg, cols=sample."""
     stripped = {e.split(".")[0]: e for e in want_ensg}
     rows = {}
     with gzip.open(path, "rt") as f:
@@ -107,46 +107,46 @@ def spearman_p(x, y):
 
 
 def main():
-    print("=== #37 GPX4–ZP3 表达关联分析（真实 TPM 数据）===\n")
+    print("=== #37 GPX4–ZP3 expression association analysis (real TPM data) ===\n")
     if not os.path.exists(DATA):
-        print(f"!! 缺 TPM: {DATA}"); return
+        print(f"!! missing TPM: {DATA}"); return
 
-    # 1. 补写 ensg_map
-    print("1. 确保基因映射（补 GPX4/ACSL4 等铁死亡基因）...")
+    # 1. Supplement ensg_map
+    print("1. Ensure gene mapping (supplement ferroptosis genes like GPX4/ACSL4)...")
     ensg_map = ensure_ensg(ENSG_MAP, GENES)
     want_ensg = list(GENES.values())
     inv = {v: k for k, v in GENES.items()}
 
-    # 2. 读取目标基因
-    print("2. 流式读取真实 TPM（目标基因）...")
+    # 2. Read target genes
+    print("2. Stream-read actual TPM (target genes)...")
     t0 = time.time()
     mat = read_target_genes(DATA, want_ensg)
-    print(f"   矩阵 {mat.shape[0]} 基因 × {mat.shape[1]} 样本，耗时 {time.time()-t0:.1f}s")
+    print(f"    Matrix {mat.shape[0]} genes x {mat.shape[1]} samples, elapsed {time.time()-t0:.1f}s")
     missing = [sym for sym, e in GENES.items() if e not in mat.index]
     if missing:
-        print(f"   !! 缺失基因行: {missing}")
+        print(f"   !! Missing gene rows: {missing}")
     mat.index = [inv.get(e, e) for e in mat.index]
 
-    # 3. TCGA 肿瘤样本
+    # 3. TCGA tumor samples
     samples = list(mat.columns)
     tcga = [s for s in samples if s.startswith("TCGA-") and s.split("-")[3].startswith("01")]
-    print(f"   TCGA 肿瘤样本: {len(tcga)}")
+    print(f"   TCGA tumor samples: {len(tcga)}")
     mat_t = mat[tcga]
 
-    # 4. 癌种映射（mat_t 是 基因行×样本列，转置后加 cancer 列）
+    # 4. Cancer type mapping (mat_t is genes x samples; transpose and add cancer column)
     with open(DISEASE_MAP) as f:
         disease = json.load(f)
     def cancer_of(s):
         return disease.get("-".join(s.split("-")[:3]), "UNKNOWN")
-    mat_tt = mat_t.T.copy()                # 样本行 × 基因列
+    mat_tt = mat_t.T.copy()                # samples x genes
     mat_tt["cancer"] = [cancer_of(s) for s in mat_tt.index]
     mat_tt = mat_tt[mat_tt["cancer"] != "UNKNOWN"]
 
     zp3 = mat_tt["ZP3"]
     gpx4 = mat_tt["GPX4"]
 
-    # ---- 5. 全局 + 胶质瘤 GPX4–ZP3 ----
-    print("\n3. GPX4–ZP3 关联：")
+    # ---- 5. Global + glioma GPX4–ZP3 ----
+    print("\n3. GPX4–ZP3 association:")
     rec_global = []
     for label, sel in [
         ("ALL_TCGA", np.ones(len(mat_tt), dtype=bool)),
@@ -157,16 +157,16 @@ def main():
         rec_global.append({"Cohort": label, "Rho": rho, "P": p, "N": n})
         print(f"   {label:10s}: GPX4–ZP3 ρ={rho:+.3f}, p={p:.3g}, n={n}")
 
-    # ---- 6. 铁死亡评分与 ZP3 ----
+    # ---- 6. Ferroptosis score with ZP3 ----
     def score_zs(genes, df):
-        """z-score 共识：每基因（列）跨样本标准化后，对每个样本取基因均值。"""
-        sub = df[genes].astype(float).T        # 基因行 × 样本列
-        valid = sub.std(axis=1) > 0            # 过滤 std=0 基因
+        """z-score consensus: standardize each gene (column) across samples, then average genes per sample."""
+        sub = df[genes].astype(float).T        # gene rows × sample columns
+        valid = sub.std(axis=1) > 0            # drop std=0 genes
         if not valid.any():
             return pd.Series(np.nan, index=df.index)
         z = ((sub.loc[valid] - sub.loc[valid].mean(axis=1).values[:, None])
              / sub.loc[valid].std(axis=1).values[:, None])
-        return z.mean(axis=0)                  # 每样本一个评分
+        return z.mean(axis=0)                  # one score per sample
 
     rec_fx = []
     for label, gs in [("AntiFerroptosis", ANTI_FERROPTOSIS),
@@ -180,7 +180,7 @@ def main():
                        "Rho": rho, "P": p, "N": n})
         print(f"   {label:16s}: ZP3–{label} ρ={rho:+.3f}, p={p:.3g}, n={n}")
 
-    # ---- 7. 泛癌各癌种 GPX4–ZP3 分层 ----
+    # ---- 7. Pan-cancer GPX4–ZP3 stratification by cancer type ----
     rec_pan = []
     for c, grp in mat_tt.groupby("cancer"):
         if len(grp) < 30:
@@ -188,23 +188,23 @@ def main():
         rho, p, n = spearman_p(grp["ZP3"].values, grp["GPX4"].values)
         rec_pan.append({"Cancer": c, "Rho": rho, "P": p, "N": n})
     pan = pd.DataFrame(rec_pan).sort_values("Rho", ascending=False)
-    print("\n4. 泛癌 GPX4–ZP3 关联（Top 10）:")
+    print("\n4. Pan-cancer GPX4–ZP3 association (Top 10):")
     for _, r in pan.head(10).iterrows():
         star = "*" if r["P"] < 0.05 else " "
         print(f"   {r['Cancer']:6s}  ρ={r['Rho']:+.3f}  p={r['P']:.3g}  n={r['N']} {star}")
 
-    # ---- 8. 保存 CSV ----
+    # ---- 8. Save CSV ----
     pd.DataFrame(rec_global).to_csv(os.path.join(BASE, "gpx4_zp3_global.csv"), index=False)
     pd.DataFrame(rec_fx).to_csv(os.path.join(BASE, "gpx4_zp3_ferroptosis_score.csv"), index=False)
     pan.to_csv(os.path.join(BASE, "gpx4_zp3_pancancer.csv"), index=False)
     mat_tt[["ZP3", "GPX4", "cancer"]].to_csv(
         os.path.join(BASE, "gpx4_zp3_expr_matrix.csv"))
 
-    # ---- 9. 图 ----
-    print("\n5. 生成关联图...")
+    # ---- 9. Plot ----
+    print("\n5. Generating association plot...")
     fig, axes = plt.subplots(1, 3, figsize=(16, 5.2))
 
-    # a) 全 TCGA 散点
+    # a) All TCGA scatter
     ax = axes[0]
     ax.scatter(gpx4.values, zp3.values, s=8, alpha=0.4, c="#378ADD")
     rho_all, p_all, _ = spearman_p(zp3.values, gpx4.values)
@@ -212,7 +212,7 @@ def main():
     ax.set_ylabel("ZP3 log2(TPM)")
     ax.set_title(f"All TCGA (n={len(mat_tt)})\nρ={rho_all:+.3f}, p={p_all:.1e}", fontsize=11)
 
-    # b) GBM/LGG 散点
+    # b) GBM/LGG scatter
     ax = axes[1]
     for c, col in [("GBM", "#A32D2D"), ("LGG", "#1D9E75")]:
         g = mat_tt[mat_tt["cancer"] == c]
@@ -222,7 +222,7 @@ def main():
     ax.set_title("Glioma: GPX4–ZP3", fontsize=11)
     ax.legend()
 
-    # c) 泛癌条形
+    # c) Pan-cancer bar
     ax = axes[2]
     top = pan.head(12)
     colors = ["#A32D2D" if (r["Rho"] > 0 and r["P"] < 0.05) else "#888780"
@@ -237,23 +237,23 @@ def main():
     plt.tight_layout()
     fig.savefig(os.path.join(BASE, "fig_gpx4_zp3_association.png"),
                 dpi=300, bbox_inches="tight")
-    print("   已保存 fig_gpx4_zp3_association.png")
+    print("    Saved fig_gpx4_zp3_association.png")
 
-    # ---- 10. 回扣迁移逻辑结论 ----
-    print("\n=== 结论（回扣 Cell 2026 GPX4-ZP3 轴迁移逻辑）===")
+    # ---- 10. Rebate migration logic conclusion ----
+    print("\n=== Conclusion (referring back to Cell 2026 GPX4-ZP3 axis migration logic) ===")
     gbm_r = next(r for r in rec_global if r["Cohort"] == "GBM")
     lgg_r = next(r for r in rec_global if r["Cohort"] == "LGG")
     all_r = next(r for r in rec_global if r["Cohort"] == "ALL_TCGA")
-    print(f"  · 全局 TCGA: GPX4–ZP3 ρ={all_r['Rho']:+.3f} (p={all_r['P']:.2g})")
+    print(f"  · Global TCGA: GPX4–ZP3 ρ={all_r['Rho']:+.3f} (p={all_r['P']:.2g})")
     print(f"  · GBM: ρ={gbm_r['Rho']:+.3f} (p={gbm_r['P']:.2g})")
     print(f"  · LGG: ρ={lgg_r['Rho']:+.3f} (p={lgg_r['P']:.2g})")
     for r in rec_fx:
         print(f"  · ZP3–{r['Score']}: ρ={r['Rho']:+.3f} (p={r['P']:.2g})")
-    print("\n回扣结论：GPX4 作为铁死亡轴核心，若与 ZP3 显著正相关，"
-          "则支持『铁死亡(ferroptosis) 释放 GPX4→分泌型 GPX4-ZP3 复合物→"
-          "髓系免疫抑制』这一 Cell 2026 轴在神经肿瘤中的延伸。"
-          "若 GBM/LGG 与泛癌方向一致，则为迁移逻辑提供表达层面证据。")
-    print("\n=== #37 完成 ===")
+    print("\nConclusion recap: GPX4, as the core of the ferroptosis axis, if significantly positively correlated with ZP3,"
+          "then supports『ferroptosis(ferroptosis) releases GPX4→secreted GPX4-ZP3 complex→"
+          "the extension of the 'myeloid immunosuppression' Cell 2026 axis in neuro-oncology."
+          "If GBM/LGG is consistent with the pan-cancer direction, it provides expression-level evidence for the migration logic.")
+    print("\n=== #37 done ===")
 
 
 if __name__ == "__main__":

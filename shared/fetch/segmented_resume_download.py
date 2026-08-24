@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-分段续传下载器 (Segmented Resume Downloader)
+Segmented Resume Downloader (Segmented Resume Downloader)
 ============================================
-解决后台进程被沙箱回收导致大文件下载中断的问题：
-- 每个下载任务按 SEG 大小分 N 段，每段独立下载到 .part{N} 文件
-- 进程被回收后重启本脚本，自动检测已完成的 .part 文件并跳过，只补未完成的段
-- 所有段完成后合并为最终文件，校验大小，写 *_DONE.txt 标记
+Solve the problem of large file downloads being interrupted when background processes are reclaimed by the sandbox:
+- Each download task is divided into N segments by SEG size, and each segment is downloaded independently to .part{N} file
+- After the process is reclaimed, restart this script to automatically detect completed .part files and skip them, only downloading missing segments
+- After all segments are completed, merge into the final file, verify the size, and write a *_DONE.txt marker
 
-支持 HTTP Range (Accept-Ranges: bytes)。已验证 toil.xenahubs.net 与
-datasets.cellxgene.cziscience.com 均支持。
+Supports HTTP Range (Accept-Ranges: bytes). Verified toil.xenahubs.net and
+datasets.cellxgene.cziscience.com both support it.
 
-用法: python segmented_resume_download.py
+Usage: python segmented_resume_download.py
 """
 import os
 import sys
@@ -19,11 +19,11 @@ import time
 import requests
 
 BASE = os.path.dirname(os.path.abspath(__file__))
-SEG = 400 * 1024 * 1024  # 每段 400 MB
-MAX_RETRY = 3            # 每段最大重试次数
+# Each segment is 400 MB
+# Maximum retry count per segment
 
-# 任务定义： (名称, URL, 输出相对路径, 断点续传文件(可选))
-# 顺序按优先级：GTEx(文章1必需) -> 黑色素瘤(跨癌种验证) -> Toil(文章3)
+# Task definition: (name, URL, output relative path, resume file (optional))
+# Order by priority: GTEx(Article 1 required) -> melanoma(cross-cancer validation) -> Toil(Article 3)
 TASKS = [
     ("GTEx_gene",
      "https://toil.xenahubs.net/download/TcgaTargetGtex_rsem_gene_tpm.gz",
@@ -55,7 +55,7 @@ def get_size(url):
 
 
 def download_range(url, start, end, part):
-    """带重试的 Range 下载单段"""
+    """Download a single range with retry"""
     headers = {'Range': f'bytes={start}-{end}'}
     last_err = None
     for attempt in range(1, MAX_RETRY + 1):
@@ -69,7 +69,7 @@ def download_range(url, start, end, part):
             return True
         except Exception as e:
             last_err = e
-            log(f'    段下载异常(尝试{attempt}/{MAX_RETRY}): {str(e)[:80]}')
+            log(f'    Segment download error (attempt {attempt}/{MAX_RETRY}): {str(e)[:80]}')
             if os.path.exists(part):
                 os.remove(part)
             time.sleep(5)
@@ -80,26 +80,26 @@ def process_task(name, url, output_rel, resume_rel):
     output = os.path.join(BASE, output_rel)
     os.makedirs(os.path.dirname(output), exist_ok=True)
 
-    # 断点续传文件处理：把已有文件重命名为 .resume（避免与 output 路径冲突）
+    # Resume file handling: rename existing file to .resume (avoid conflict with output path)
     resume_file = None
     if resume_rel:
         resume_path = os.path.join(BASE, resume_rel)
         if os.path.exists(resume_path) and not os.path.exists(output):
             resume_file = resume_path
         elif os.path.exists(output) and not os.path.exists(resume_path):
-            # output 已存在但 resume 不存在：说明之前合并未完成或异常，重命名为 resume
+            # output exists but resume doesn't: means previous merge was incomplete or abnormal, rename to resume
             os.rename(output, resume_path)
             resume_file = resume_path
 
     total = get_size(url)
-    log(f'[{name}] 总大小 {total/1e9:.2f} GB')
+    log(f'[{name}] Total size {total/1e9:.2f} GB')
 
     start_offset = 0
     if resume_file and os.path.exists(resume_file):
         start_offset = os.path.getsize(resume_file)
-        log(f'[{name}] 检测到断点文件 {start_offset/1e6:.0f} MB，从该位置续传')
+        log(f'[{name}] Detected resume file {start_offset/1e6:.0f} MB, resuming from that position')
 
-    # 计算分段
+    # Calculate segments
     segments = []
     pos = start_offset
     idx = 0
@@ -108,25 +108,25 @@ def process_task(name, url, output_rel, resume_rel):
         segments.append((idx, pos, end))
         pos = end + 1
         idx += 1
-    log(f'[{name}] 分 {len(segments)} 段 (每段 {SEG/1e6:.0f} MB)')
+    log(f'[{name}] Split into {len(segments)} segments (each {SEG/1e6:.0f} MB)')
 
     for seg_idx, s, e in segments:
         part = f'{output}.part{seg_idx}'
         expected = e - s + 1
         if os.path.exists(part) and os.path.getsize(part) == expected:
-            log(f'  [{name}] 段{seg_idx} 已完成({expected/1e6:.0f}MB)，跳过')
+            log(f'  [{name}] Segment {seg_idx} already done ({expected/1e6:.0f}MB), skipping')
             continue
         if os.path.exists(part):
             os.remove(part)
-        log(f'  [{name}] 段{seg_idx}: bytes {s}-{e} ({expected/1e6:.0f}MB) 下载中...')
+        log(f'  [{name}] Segment {seg_idx}: bytes {s}-{e} ({expected/1e6:.0f}MB) downloading...')
         t0 = time.time()
         download_range(url, s, e, part)
         dt = time.time() - t0
         speed = (expected / 1e6) / dt if dt > 0 else 0
-        log(f'  [{name}] 段{seg_idx} 完成 ({speed:.0f} MB/s)')
+        log(f'  [{name}] Segment {seg_idx} done ({speed:.0f} MB/s)')
 
-    # 合并
-    log(f'[{name}] 合并 {len(segments)} 段...')
+    # Merge
+    log(f'[{name}] Merging {len(segments)} segments...')
     with open(output, 'wb') as out:
         if resume_file and os.path.exists(resume_file):
             with open(resume_file, 'rb') as rf:
@@ -148,33 +148,33 @@ def process_task(name, url, output_rel, resume_rel):
 
     actual = os.path.getsize(output)
     if actual == total:
-        log(f'[{name}] ✅ 完成，大小校验一致 {actual} bytes')
+        log(f'[{name}] ✅ Done, size verification consistent {actual} bytes')
         with open(os.path.join(BASE, f'{name}_DONE.txt'), 'w') as f:
             f.write(str(actual))
     else:
-        log(f'[{name}] ❌ 大小不匹配! 实际 {actual} vs 期望 {total}')
+        log(f'[{name}] ❌ Size mismatch! Actual {actual} vs expected {total}')
 
 
 def main():
-    log('=== 分段续传下载器启动 (pid=%d) ===' % os.getpid())
+    log('=== Segmented resume downloader started (pid=%d) ===' % os.getpid())
     for name, url, out_rel, resume_rel in TASKS:
         done_mark = os.path.join(BASE, f'{name}_DONE.txt')
         if os.path.exists(done_mark):
-            log(f'[{name}] 已有完成标记，跳过')
+            log(f'[{name}] Already has completion marker, skipping')
             continue
-        # 任务级重试：应对瞬时网络错误，进程被杀则靠外部重启续传
+        # Task-level retry: handle transient network errors; if the process is killed, external restart resumes the transfer
         for attempt in range(1, 4):
             try:
                 process_task(name, url, out_rel, resume_rel)
                 break
             except Exception as e:
-                log(f'[{name}] ⚠️ 任务异常(尝试{attempt}/3): {str(e)[:120]}')
+                log(f'[{name}] ⚠️ Task exception (attempt {attempt}/3): {str(e)[:120]}')
                 if attempt < 3:
-                    log(f'[{name}] 30秒后重试...')
+                    log(f'[{name}] Retrying in 30 seconds...')
                     time.sleep(30)
                 else:
-                    log(f'[{name}] 本轮放弃，下次重启将自动续传未完成段')
-    log('=== 所有任务处理完毕 ===')
+                    log(f'[{name}] Giving up this round, next restart will automatically resume incomplete segments')
+    log('=== All tasks processed ===')
     with open(os.path.join(BASE, 'ALL_DOWNLOADED.txt'), 'w') as f:
         f.write(time.strftime('%Y-%m-%d %H:%M:%S'))
 

@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-H1 侦查：胶质瘤单细胞图谱中 ZP3 在 CNS 免疫细胞（TAM/小胶质/DC）的表达侦查
-数据源：GSE141982 (TISCH GBM, ELSA classifier reference) — GEO 下载的 10x mtx
-流程：load -> QC -> normalize/log1p -> HVG -> PCA -> neighbors -> UMAP -> Leiden
-      -> 参考标记打分注释细胞类型 -> 统计 ZP3+ 细胞占比
-输出：ZP3 各细胞类型表达表 + UMAP 图（含 ZP3 表达）+ 细胞类型注释图
+H1 recon: survey of ZP3 expression in CNS immune cells (TAM/microglia/DC) in the glioma single-cell atlas
+Data source: GSE141982 (TISCH GBM, ELSA classifier reference) — 10x mtx downloaded from GEO
+Pipeline: load -> QC -> normalize/log1p -> HVG -> PCA -> neighbors -> UMAP -> Leiden
+      -> score cell types against reference markers -> compute the fraction of ZP3+ cells
+Output: table of ZP3 expression by cell type + UMAP plots (including ZP3 expression) + cell type annotation plot
 """
 import os, warnings
 import numpy as np
@@ -21,11 +21,11 @@ RAW = os.path.join(BASE, "raw")
 OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "article1", "results", "h1_pilot")
 
 # ---------------------------------------------------------------
-# 1. 载入 4 个样本 (10x mtx)
+# 1. Load 4 samples (10x mtx)
 # ---------------------------------------------------------------
-# tar 解包后是平铺文件，先按样本前缀归置到子目录
-# 幂等实现：仅处理【文件】（跳过已存在的子目录），且已归置的子目录会被
-# os.path.isfile 守卫跳过 —— 二次运行不会因 RAW 只剩子目录而崩溃。
+# After tar extraction the files are flat; first file them into subdirectories by sample prefix
+# Idempotent implementation: process only files (skip existing subdirectories), and already-filed subdirectories are
+# skipped by the os.path.isfile guard — a second run won't crash when RAW is left with only subdirectories.
 import re, shutil
 prefixes = set()
 for fn in os.listdir(RAW):
@@ -46,7 +46,7 @@ for pre in prefixes:
             shutil.move(fp, os.path.join(dstdir, fn))
 
 sample_dirs = sorted([d for d in os.listdir(RAW) if os.path.isdir(os.path.join(RAW, d))])
-print("发现样本:", sample_dirs)
+print("Found samples:", sample_dirs)
 adatas = []
 for d in sample_dirs:
     path = os.path.join(RAW, d)
@@ -56,22 +56,22 @@ for d in sample_dirs:
     print(f"  {d}: {ad.n_obs} cells x {ad.n_vars} genes")
 
 adata = sc.concat(adatas, join="outer", label="sample")
-print("合并后:", adata.n_obs, "cells x", adata.n_vars, "genes")
+print("After merge:", adata.n_obs, "cells x", adata.n_vars, "genes")
 
 # ---------------------------------------------------------------
 # 2. QC
 # ---------------------------------------------------------------
 adata.var["mt"] = adata.var_names.str.upper().str.startswith("MT-")
 sc.pp.calculate_qc_metrics(adata, qc_vars=["mt"], percent_top=None, inplace=True)
-print("QC 前细胞数:", adata.n_obs)
-# 过滤：每个细胞至少 200 基因；每基因至少在 3 细胞表达；线粒体 < 25%
+print("Cell count before QC:", adata.n_obs)
+# Filter: at least 200 genes per cell; each gene expressed in at least 3 cells; mitochondrial < 25%
 sc.pp.filter_cells(adata, min_genes=200)
 sc.pp.filter_genes(adata, min_cells=3)
 adata = adata[adata.obs["pct_counts_mt"] < 25].copy()
-print("QC 后细胞数:", adata.n_obs)
+print("Cell count after QC:", adata.n_obs)
 
 # ---------------------------------------------------------------
-# 3. 归一化 / 对数 / HVG / PCA / 邻居 / UMAP / Leiden
+# 3. Normalization / log / HVG / PCA / neighbors / UMAP / Leiden
 # ---------------------------------------------------------------
 sc.pp.normalize_total(adata, target_sum=1e4)
 sc.pp.log1p(adata)
@@ -83,12 +83,12 @@ sc.tl.pca(adata, n_comps=30, random_state=0)
 sc.pp.neighbors(adata, n_neighbors=15, n_pcs=30, random_state=0)
 sc.tl.umap(adata, random_state=0)
 sc.tl.leiden(adata, resolution=0.6, random_state=0, key_added="leiden")
-print(" Leiden 簇数:", adata.obs["leiden"].nunique())
+print(" Leiden cluster count:", adata.obs["leiden"].nunique())
 
 # ---------------------------------------------------------------
-# 4. 参考标记打分注释细胞类型
-#    采用「簇水平注释」(cluster-level) —— 对每个 Leiden 簇取谱系标记
-#    的平均表达进行分配，避免逐细胞 max-score 在小胶质/髓系上被噪声污染。
+# 4. Cell type annotation via reference marker scoring
+#    Use "cluster-level annotation" -- for each Leiden cluster, assign based on the
+#    mean expression of lineage markers, avoiding noise contamination of per-cell max-score in microglia/myeloid.
 # ---------------------------------------------------------------
 markers = {
     "Microglia":      ["CX3CR1","P2RY12","TMEM119","SALL1","CSF1R","ITGAM","SPI1"],
@@ -105,12 +105,12 @@ markers = {
 }
 valid_markers = {k: [g for g in v if g in adata.raw.var_names] for k, v in markers.items()}
 
-# 逐细胞 score（用于 UMAP 展示）
+# Per-cell scores (for UMAP display)
 for k, v in valid_markers.items():
     if v:
         sc.tl.score_genes(adata, v, score_name=f"score_{k}")
 
-# 簇水平注释：每个 leiden 簇对各谱系标记的平均表达
+# Cluster-level annotation: mean expression of each lineage marker per leiden cluster
 raw_expr = adata.raw.X  # sparse (cells x genes, log-normalized)
 gene_names = list(adata.raw.var_names)
 marker_idx = {k: [gene_names.index(g) for g in v] for k, v in valid_markers.items() if v}
@@ -128,13 +128,13 @@ for cl in clusters:
     cluster_marker_mean[cl] = means
 adata.obs["cell_type"] = adata.obs["leiden"].map(cluster_map).values
 
-# 逐细胞 score 列名修正（去掉 "/" 以便 h5ad 保存）
+# Fix per-cell score column names (remove "/" for h5ad saving)
 for k in valid_markers:
     if f"score_{k}" in adata.obs.columns:
         adata.obs.rename(columns={f"score_{k}": f"score_{k.replace('/','_')}"}, inplace=True)
 
 # ---------------------------------------------------------------
-# 5. ZP3 表达统计（基于 raw 归一化后）
+# 5. ZP3 expression statistics (based on raw normalized data)
 # ---------------------------------------------------------------
 zp3 = "ZP3"
 if zp3 in adata.raw.var_names:
@@ -142,13 +142,13 @@ if zp3 in adata.raw.var_names:
 else:
     zp3_expr = np.zeros(adata.n_obs)
 adata.obs["ZP3_expr"] = zp3_expr
-adata.obs["ZP3_pos"] = zp3_expr > 0   # count>0 即检测到
+adata.obs["ZP3_pos"] = zp3_expr > 0   # count>0 means detected
 
-print("\n==================== H1 结果：ZP3 表达侦查 ====================")
-print("总细胞数(QC后):", adata.n_obs)
-print("ZP3 总体阳性率: {:.2f}%".format(100*adata.obs['ZP3_pos'].mean()))
+print("\n==================== H1 Results: ZP3 Expression Survey ====================")
+print("Total cell count (post-QC):", adata.n_obs)
+print("ZP3 overall positive rate: {:.2f}%".format(100*adata.obs['ZP3_pos'].mean()))
 
-# 簇水平注释的 ZP3 表达表
+# ZP3 expression table by cluster-level annotation
 rows = []
 for ct in sorted(adata.obs["cell_type"].unique()):
     sub = adata.obs[adata.obs["cell_type"] == ct]
@@ -162,31 +162,31 @@ for ct in sorted(adata.obs["cell_type"].unique()):
         "n_ZP3_positive": int(pos),
     })
 res_df = pd.DataFrame(rows).sort_values("n_cells", ascending=False)
-print("\n--- 按注释细胞类型(簇水平)的 ZP3 表达 ---")
+print("\n--- ZP3 expression by annotated cell type (cluster level) ---")
 print(res_df.to_string(index=False))
 
-# 中枢免疫细胞（TAM/小胶质/DC）汇总
+# Summary of central immune cells (TAM/Microglia/DC)
 immune_types = ["TAM_Macrophage","Microglia","DC"]
 imm = adata.obs[adata.obs["cell_type"].isin(immune_types)]
-print("\n--- 中枢免疫细胞汇总（TAM/小胶质/DC）---")
-print("细胞数:", len(imm), " ZP3+:", int(imm['ZP3_pos'].sum()),
-      " 阳性率: {:.2f}%".format(100*imm['ZP3_pos'].mean()))
+print("\n--- Central immune cell summary (TAM/Microglia/DC) ---")
+print("Cell count:", len(imm), " ZP3+:", int(imm['ZP3_pos'].sum()),
+      " Positive rate: {:.2f}%".format(100*imm['ZP3_pos'].mean()))
 
-# 各样本 ZP3 阳性率（批次检查）
-print("\n--- 各样本 ZP3 阳性率 ---")
+# ZP3 positive rate per sample (batch check)
+print("\n--- ZP3 positive rate per sample ---")
 for s in sorted(adata.obs["sample"].unique()):
     sub = adata.obs[adata.obs["sample"] == s]
     print(f"  {s}: n={len(sub)}, ZP3+={int(sub['ZP3_pos'].sum())}, {100*sub['ZP3_pos'].mean():.2f}%")
 
-# 髓系簇内部细节
-print("\n--- 髓系相关 Leiden 簇的 ZP3（簇水平核对）---")
+# Details within myeloid clusters
+print("\n--- ZP3 in myeloid-related Leiden clusters (cluster-level check) ---")
 for cl in sorted(clusters, key=lambda x: int(x)):
     if cluster_map[cl] in immune_types:
         sub = adata.obs[adata.obs["leiden"] == cl]
         print(f"  cluster {cl} -> {cluster_map[cl]}: n={len(sub)}, ZP3+={int(sub['ZP3_pos'].sum())}, {100*sub['ZP3_pos'].mean():.2f}%")
 
 # ---------------------------------------------------------------
-# 6. 可视化
+# 6. Visualization
 # ---------------------------------------------------------------
 sc.pl.umap(adata, color="cell_type", title="Cell types (GSE141982 GBM)",
            save="_celltypes.png", show=False, frameon=False, legend_fontsize=8)
@@ -194,7 +194,7 @@ sc.pl.umap(adata, color=["ZP3_expr","ZP3_pos"], title="ZP3 expression",
            save="_ZP3.png", show=False, frameon=False, cmap="viridis")
 sc.pl.umap(adata, color="leiden", save="_leiden.png", show=False, frameon=False, legend_fontsize=8)
 
-# 保存
+# Save
 res_df.to_csv(os.path.join(OUT, "h1_zp3_by_celltype.csv"), index=False)
 imm_summary = pd.DataFrame([{
     "group":"CNS_immune_TAM_MG_DC","n_cells":int(len(imm)),
@@ -203,4 +203,4 @@ imm_summary = pd.DataFrame([{
     "mean_ZP3_logexpr":round(float(imm['ZP3_expr'].mean()),4)}])
 imm_summary.to_csv(os.path.join(OUT, "h1_zp3_immune_summary.csv"), index=False)
 adata.write(os.path.join(OUT, "h1_adata.h5ad"))
-print("\n已保存: h1_zp3_by_celltype.csv, h1_zp3_immune_summary.csv, h1_adata.h5ad, 3 张 UMAP 图")
+print("\nSaved: h1_zp3_by_celltype.csv, h1_zp3_immune_summary.csv, h1_adata.h5ad, 3 UMAP plots")
